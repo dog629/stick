@@ -7,7 +7,7 @@ try:
 except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
     import requests
-q = 1
+
 import tkinter as tk
 from tkinter import messagebox
 import math
@@ -247,7 +247,7 @@ class World:
         if s.message:
             c.create_rectangle(cx-80, cy-110, cx+80, cy-60, fill="white")
             c.create_text(cx, cy-85, text=s.message, fill="black", font=("Arial", 9, "bold"))
-a = 1
+
 root = tk.Tk(); root.withdraw()
 outside = World("Outside World", 100); house = World("House", 800, is_house=True)
 stick = StickFigure(); current_world = outside; other_world = house
