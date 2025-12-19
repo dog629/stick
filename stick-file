@@ -16,7 +16,7 @@ import random
 from datetime import datetime
 
 # --- CONFIGURATION ---
-VERSION = 1.1  
+VERSION = 1.0
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/dog629/stick/main/stick-file"
 
 def restart_program():
