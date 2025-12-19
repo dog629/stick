@@ -1,7 +1,8 @@
 import sys
 import subprocess
+import os
 
-# --- STEP 1: AUTO-INSTALL REQUESTS IF MISSING ---
+# --- STEP 1: AUTO-INSTALL REQUESTS ---
 try:
     import requests
 except ImportError:
@@ -13,7 +14,6 @@ from tkinter import messagebox
 import math
 import random
 import hashlib
-import os
 from datetime import datetime
 
 # ---------------------------- #
@@ -43,7 +43,7 @@ root_detect.withdraw()
 SCREEN_LOCK = False
 
 # ---------------------------- #
-# STICK FIGURE
+# STICK FIGURE CLASS
 # ---------------------------- #
 class StickFigure:
     def __init__(self):
@@ -60,36 +60,38 @@ class StickFigure:
         now = datetime.now().hour
         self.step += 0.25
         
+        # PRIORITY 1: CONNECTING TO PC
         if self.mode == "GO_TO_PC":
             tx, ty = 125, 200 
             dist_x, dist_y = tx - self.x, ty - self.y
-            self.dx, self.dy = dist_x / 10, dist_y / 20
+            self.dx, self.dy = dist_x / 10, dist_y / 15
             if abs(dist_x) < 5 and abs(dist_y) < 5:
                 self.mode = "AT_MENU"
                 self.dx, self.dy = 0, 0
-                self.say("Hey!")
+                self.say("Connected!")
+        
+        # PRIORITY 2: DAILY SCHEDULE
         else:
-            if 6 <= now < 11:
+            if 6 <= now < 11: # Morning
                 if not self.has_greeted:
                     self.x, self.y = 100, 300 
                     self.say("Morning, human!")
                     self.has_greeted = True
-                self.mode = "WANDER"
-            elif 12 <= now < 14:
+            elif 12 <= now < 14: # Lunch
                 if not self.is_eating:
                     self.say("Mmm... lunch time!")
                     self.is_eating = True
                     self.x, self.y = 300, 300
                 self.dx, self.dy = random.uniform(-0.5, 0.5), random.uniform(-0.5, 0.5)
-            elif now >= 21 or now < 6:
+            elif now >= 21 or now < 6: # Night
                 self.x, self.y = 80, 300 
                 self.dx, self.dy = 0, 0
                 if self.timer == 0: self.message = "Zzz..."
             else:
-                self.mode = "WANDER"
                 self.is_eating = False
                 self.has_greeted = False
 
+            # Normal Wander Logic
             if self.mode == "WANDER" and not (now >= 21 or now < 6):
                 self.dx += random.uniform(-0.2, 0.2)
                 self.dy += random.uniform(-0.2, 0.2)
@@ -97,6 +99,8 @@ class StickFigure:
                 self.dy = max(-6, min(6, self.dy))
 
         self.x += self.dx; self.y += self.dy
+        
+        # Boundary & Window Movement
         win_x, win_y = current_win.winfo_x(), current_win.winfo_y()
         pushed_dx, pushed_dy = 0, 0
         if self.x <= 40: self.x = 40; pushed_dx = -abs(int(self.dx))
@@ -117,7 +121,7 @@ class StickFigure:
         self.message = text; self.timer = 150
 
 # ---------------------------- #
-# GAME MENU & UI
+# GAME MENU CLASS
 # ---------------------------- #
 class GameMenu:
     def __init__(self):
@@ -133,12 +137,13 @@ class GameMenu:
         self.time_label = tk.Label(self.window, text="", fg="cyan", bg="#222", font=("Consolas", 12))
         self.time_label.pack()
 
-        self.btn_pong = tk.Button(self.window, text="Classic Pong", state="disabled", width=20, command=self.play_pong)
+        self.btn_pong = tk.Button(self.window, text="Classic Pong", state="disabled", width=20, command=self.play_game)
         self.btn_pong.pack(pady=5)
-        self.btn_dodge = tk.Button(self.window, text="Dodge Ball", state="disabled", width=20, command=self.play_dodge)
+        
+        self.btn_dodge = tk.Button(self.window, text="Dodge Ball", state="disabled", width=20, command=self.play_game)
         self.btn_dodge.pack(pady=5)
 
-        self.connect_btn = tk.Button(self.window, text="CONNECT TO HOUSE", command=self.handle_night_prompt)
+        self.connect_btn = tk.Button(self.window, text="CONNECT TO HOUSE", command=self.handle_connect)
         self.connect_btn.pack(pady=10)
 
         tk.Label(self.window, text="--- MONITOR CONTROL ---", fg="gray", bg="#222").pack(pady=10)
@@ -146,74 +151,74 @@ class GameMenu:
         tk.Checkbutton(self.window, text="Lock to Screen 1", variable=self.lock_var, command=self.toggle_lock, bg="#222", fg="white", selectcolor="#444").pack()
 
         tk.Label(self.window, text="--- SYSTEM ---", fg="gray", bg="#222").pack(pady=10)
-        self.update_btn = tk.Button(self.window, text="Checking Global Version...", bg="#111", fg="gray", state="disabled")
+        self.update_btn = tk.Button(self.window, text="Checking Updates...", bg="#111", fg="gray", state="disabled")
         self.update_btn.pack(pady=5)
+        
         tk.Button(self.window, text="RESTART SOFTWARE", bg="#442222", fg="white", command=restart_program).pack(pady=10)
 
         self.auto_loop()
 
     def check_for_global_update(self):
         try:
-            url = "https://raw.githubusercontent.com/dog629/stick/main/stick-file"
+            # nocache bypasses GitHub caching to detect updates instantly
+            nocache = random.randint(1, 99999)
+            url = f"https://raw.githubusercontent.com/dog629/stick/main/stick-file?nocache={nocache}"
             response = requests.get(url, timeout=5)
-            # Use MD5 hash of the downloaded content to compare
             remote_code = response.text
             remote_hash = hashlib.md5(remote_code.encode()).hexdigest()
             
             if remote_hash != STARTUP_HASH:
                 self.update_btn.config(text="INSTALL UPDATE", bg="cyan", fg="black", state="normal", command=lambda: self.apply_update(remote_code))
             else:
-                self.update_btn.config(text="Up to Date", bg="#111", fg="gray", state="disabled")
+                self.update_btn.config(text="Version Up to Date", bg="#111", fg="gray", state="disabled")
         except:
-            self.update_btn.config(text="Offline", fg="red")
+            self.update_btn.config(text="Server Offline", fg="red")
 
     def apply_update(self, new_code):
-        if messagebox.askyesno("Update", "Download and install new version?"):
-            try:
-                path = os.path.abspath(sys.argv[0])
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(new_code)
-                messagebox.showinfo("Success", "Update installed! Restarting...")
-                restart_program()
-            except Exception as e:
-                messagebox.showerror("Error", f"Update failed: {e}")
+        if messagebox.askyesno("Update", "New version detected. Install and restart?"):
+            path = os.path.abspath(sys.argv[0])
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(new_code)
+            restart_program()
 
-    def play_pong(self):
-        pwin = tk.Toplevel(); pwin.title("Pong"); pwin.geometry("400x300")
-        tk.Label(pwin, text="[ PONG GAME STARTED ]", font=("Arial", 14)).pack(pady=50)
-
-    def play_dodge(self):
-        dwin = tk.Toplevel(); dwin.title("Dodge"); dwin.geometry("400x300")
-        tk.Label(dwin, text="[ DODGE BALL STARTED ]", font=("Arial", 14)).pack(pady=50)
+    def play_game(self):
+        messagebox.showinfo("Game", "Game loading...")
 
     def toggle_lock(self):
         global SCREEN_LOCK
         SCREEN_LOCK = self.lock_var.get()
 
-    def handle_night_prompt(self):
+    def handle_connect(self):
+        if current_world != house:
+            stick.say("I'm not in the house!")
+            return
+        
         if datetime.now().hour >= 21 or datetime.now().hour < 6:
-            choice = messagebox.askquestion("Sleeping", "Stick Figure is sleeping. Give food to wake up?")
+            choice = messagebox.askquestion("Sleeping", "Stick Figure is sleeping. Wake him with food?")
             if choice == 'no': root.destroy()
             elif random.random() > 0.5: self.start_connection()
             else: stick.say("Too tired...")
-        else: self.start_connection()
+        else:
+            self.start_connection()
 
     def start_connection(self):
-        if current_world != house: stick.say("Get inside!"); return
-        stick.mode = "GO_TO_PC"; self.status_label.config(text="CONNECTING...", fg="yellow")
-        self.check_stick_arrival()
+        stick.mode = "GO_TO_PC"
+        self.status_label.config(text="CONNECTING...", fg="yellow")
+        self.check_arrival()
 
-    def check_stick_arrival(self):
+    def check_arrival(self):
         if stick.mode == "AT_MENU":
             self.status_label.config(text="ONLINE", fg="lime")
-            self.btn_pong.config(state="normal"); self.btn_dodge.config(state="normal")
+            self.btn_pong.config(state="normal")
+            self.btn_dodge.config(state="normal")
             self.connect_btn.pack_forget()
-        else: self.window.after(100, self.check_stick_arrival)
+        else:
+            self.window.after(100, self.check_arrival)
 
     def auto_loop(self):
         self.time_label.config(text=datetime.now().strftime("%H:%M:%S"))
-        # Check for update every 60 seconds
-        if int(datetime.now().strftime("%S")) == 0:
+        # Check for update every 10 seconds
+        if int(datetime.now().strftime("%S")) % 10 == 0:
             self.check_for_global_update()
         self.window.after(1000, self.auto_loop)
 
@@ -229,9 +234,9 @@ class World:
 
     def draw_decorations(self):
         if self.is_house:
-            self.canvas.create_rectangle(30, 350, 150, 400, fill="#444")
-            self.canvas.create_rectangle(100, 250, 150, 260, fill="#555")
-            self.canvas.create_rectangle(110, 200, 140, 240, fill="#002244")
+            self.canvas.create_rectangle(30, 350, 150, 400, fill="#444") # Bed
+            self.canvas.create_rectangle(100, 250, 150, 260, fill="#555") # Desk
+            self.canvas.create_rectangle(110, 200, 140, 240, fill="#002244") # PC
 
     def clear(self): self.canvas.delete("all"); self.draw_decorations()
     def draw_stick(self, s):
@@ -263,6 +268,8 @@ def handle_chat(event, world):
     elif "come out" in text:
         house.entry.place_forget(); outside.entry.place(x=10, y=HEIGHT-35, width=WIDTH-20)
         current_world = outside
+    elif "are you making anything" in text:
+        stick.say("Yes! More games coming soon.")
     else: stick.say("Thinking...")
 
 outside.entry.bind("<Return>", lambda e: handle_chat(e, outside))
