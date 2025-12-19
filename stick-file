@@ -13,11 +13,10 @@ import tkinter as tk
 from tkinter import messagebox
 import math
 import random
-import hashlib
 from datetime import datetime
 
 # --- CONFIGURATION ---
-VERSION = 1.1  # Change this to 1.1, 1.2, etc. on GitHub to trigger updates
+VERSION = 1.2  
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/dog629/stick/main/stick-file"
 
 # ---------------------------- #
@@ -53,8 +52,9 @@ class StickFigure:
 
     def update(self, current_win, other_win):
         now = datetime.now().hour
-        self.step += 0.25
+        self.step += 0.25 # This makes the legs move
         
+        # 1. HANDLE SPECIAL MODES
         if self.mode == "GO_TO_PC":
             tx, ty = 125, 200 
             dist_x, dist_y = tx - self.x, ty - self.y
@@ -65,103 +65,75 @@ class StickFigure:
                 self.say("Connected!")
         
         else:
-            # --- MORNING ---
-            if 6 <= now < 11:
+            # 2. CHECK THE TIME SCHEDULE
+            if 6 <= now < 11: # Morning
                 if not self.has_greeted:
-                    self.x, self.y = 100, 300 
                     self.say("Morning, human!")
                     self.has_greeted = True
             
-            # --- LUNCH (Wandering while eating) ---
-            elif 12 <= now < 14:
+            elif 12 <= now < 14: # Lunch
                 if not self.is_eating:
                     self.say("Mmm... lunch time!")
                     self.is_eating = True
-                # No 'return' or 'fixed x/y' here, so it falls through to Wander logic below
             
-            # --- NIGHT ---
-            elif now >= 21 or now < 6:
+            elif now >= 21 or now < 6: # Sleeping
+                self.mode = "SLEEP"
                 self.x, self.y = 80, 300 
                 self.dx, self.dy = 0, 0
                 if self.timer == 0: self.message = "Zzz..."
             
-            # --- RESET STATES ---
-            else:
+            else: # Reset states outside of specific times
                 self.is_eating = False
                 self.has_greeted = False
+                self.mode = "WANDER"
 
-            # --- NORMAL ACTIONS (Wander Movement) ---
-            # This runs during the Day AND during Lunch
-            if not (now >= 21 or now < 6):
-                self.dx += random.uniform(-0.2, 0.2)
-                self.dy += random.uniform(-0.2, 0.2)
-                self.dx = max(-6, min(6, self.dx))
-                self.dy = max(-6, min(6, self.dy))
-            else:
-                self.dx, self.dy = 0, 0
+            # 3. APPLY MOVEMENT (If not sleeping or at menu)
+            if self.mode != "SLEEP" and self.mode != "AT_MENU":
+                # Add a bit of random push to the speed
+                self.dx += random.uniform(-0.3, 0.3)
+                self.dy += random.uniform(-0.3, 0.3)
+                # Keep speed in a reasonable range
+                self.dx = max(-5, min(5, self.dx))
+                self.dy = max(-5, min(5, self.dy))
+            
+        # 4. APPLY PHYSICS
+        self.x += self.dx
+        self.y += self.dy
 
-        # Apply physics and window pushing
-        self.x += self.dx; self.y += self.dy
-        # ... (rest of the boundary logic from previous code)
-
-    def update(self, current_win, other_win):
-        now = datetime.now().hour
-        self.step += 0.25
-        
-        if self.mode == "GO_TO_PC":
-            tx, ty = 125, 200 
-            dist_x, dist_y = tx - self.x, ty - self.y
-            self.dx, self.dy = dist_x / 10, dist_y / 15
-            if abs(dist_x) < 5 and abs(dist_y) < 5:
-                self.mode = "AT_MENU"
-                self.dx, self.dy = 0, 0
-                self.say("Connected!")
-        
-        else:
-            if 6 <= now < 11:
-                if not self.has_greeted:
-                    self.x, self.y = 100, 300 
-                    self.say("Morning, human!")
-                    self.has_greeted = True
-            elif 12 <= now < 14:
-                if not self.is_eating:
-                    self.say("Mmm... lunch time!")
-                    self.is_eating = True
-                    self.x, self.y = 300, 300
-                self.dx, self.dy = random.uniform(-0.5, 0.5), random.uniform(-0.5, 0.5)
-            elif now >= 21 or now < 6:
-                self.x, self.y = 80, 300 
-                self.dx, self.dy = 0, 0
-                if self.timer == 0: self.message = "Zzz..."
-            else:
-                self.is_eating = False
-                self.has_greeted = False
-
-            if self.mode == "WANDER" and not (now >= 21 or now < 6):
-                self.dx += random.uniform(-0.2, 0.2)
-                self.dy += random.uniform(-0.2, 0.2)
-                self.dx = max(-6, min(6, self.dx))
-                self.dy = max(-6, min(6, self.dy))
-
-        self.x += self.dx; self.y += self.dy
+        # 5. WINDOW BOUNDARIES & PUSHING
         win_x, win_y = current_win.winfo_x(), current_win.winfo_y()
         pushed_dx, pushed_dy = 0, 0
-        if self.x <= 40: self.x = 40; pushed_dx = -abs(int(self.dx))
-        if self.x >= WIDTH - 40: self.x = WIDTH - 40; pushed_dx = abs(int(self.dx))
-        if self.y <= 60: self.y = 60; pushed_dy = -abs(int(self.dy))
-        if self.y >= HEIGHT - 130: self.y = HEIGHT - 130; pushed_dy = abs(int(self.dy))
+        
+        if self.x <= 40: 
+            self.x = 40
+            pushed_dx = -3 # Push window left
+        if self.x >= WIDTH - 40: 
+            self.x = WIDTH - 40
+            pushed_dx = 3 # Push window right
+        if self.y <= 60: 
+            self.y = 60
+            pushed_dy = -3
+        if self.y >= HEIGHT - 130: 
+            self.y = HEIGHT - 130
+            pushed_dy = 3
 
+        # Move the actual window
         new_x = win_x + pushed_dx
         new_y = max(0, min(SCREEN_HEIGHT - HEIGHT - TASKBAR_HEIGHT, win_y + pushed_dy))
-        if SCREEN_LOCK: new_x = max(0, min(SCREEN_WIDTH - WIDTH, new_x))
+        
+        if SCREEN_LOCK: 
+            new_x = max(0, min(SCREEN_WIDTH - WIDTH, new_x))
+            
         current_win.geometry(f"+{int(new_x)}+{int(new_y)}")
         
+        # Message Timer
         if self.timer > 0:
             self.timer -= 1
             if self.timer == 0: self.message = ""
 
     def say(self, text):
-        self.message = text; self.timer = 150
+        self.message = text
+        self.timer = 150
 
 # ---------------------------- #
 # GAME MENU CLASS
@@ -191,13 +163,13 @@ class GameMenu:
 
         tk.Label(self.window, text="--- MONITOR CONTROL ---", fg="gray", bg="#222").pack(pady=10)
         self.lock_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(self.window, text="Lock to Screen 1", variable=self.lock_var, command=self.toggle_lock, bg="#222", fg="white", selectcolor="#444").pack()
+        tk.Checkbutton(self.window, text="Lock Screen", variable=self.lock_var, command=self.toggle_lock, bg="#222", fg="white", selectcolor="#444").pack()
 
         tk.Label(self.window, text="--- SYSTEM ---", fg="gray", bg="#222").pack(pady=10)
         self.update_btn = tk.Button(self.window, text=f"v{VERSION} - Up to Date", bg="#111", fg="gray", state="disabled")
         self.update_btn.pack(pady=5)
         
-        tk.Button(self.window, text="RESTART SOFTWARE", bg="#442222", fg="white", command=restart_program).pack(pady=10)
+        tk.Button(self.window, text="RESTART", bg="#442222", fg="white", command=restart_program).pack(pady=10)
 
         self.auto_loop()
 
@@ -205,35 +177,32 @@ class GameMenu:
         try:
             nocache = random.randint(1, 99999)
             url = f"{GITHUB_RAW_URL}?nocache={nocache}"
-            response = requests.get(url, timeout=5)
-            remote_code = response.text
+            resp = requests.get(url, timeout=5)
+            remote_text = resp.text
             
-            remote_version = VERSION
-            # Parse the remote version from the text
-            for line in remote_code.split('\n'):
-                if line.startswith("VERSION ="):
-                    try:
-                        remote_version = float(line.split('=')[1].split('#')[0].strip())
-                    except:
-                        pass
+            remote_v = VERSION
+            for line in remote_text.split('\n'):
+                if "VERSION =" in line:
+                    parts = line.split('=')
+                    remote_v = float(parts[1].split('#')[0].strip())
                     break
             
-            if remote_version > VERSION:
-                self.update_btn.config(text=f"UPDATE TO v{remote_version}", bg="cyan", fg="black", state="normal", command=lambda: self.apply_update(remote_code))
+            if remote_v > VERSION:
+                self.update_btn.config(text=f"UPDATE TO v{remote_v}", bg="cyan", fg="black", state="normal", command=lambda: self.apply_update(remote_text))
             else:
                 self.update_btn.config(text=f"v{VERSION} - Up to Date", bg="#111", fg="gray", state="disabled")
         except:
-            self.update_btn.config(text="Server Error", fg="red")
+            pass
 
     def apply_update(self, new_code):
-        if messagebox.askyesno("Update", "Download and install new version?"):
+        if messagebox.askyesno("Update", "Install new version?"):
             path = os.path.abspath(sys.argv[0])
             with open(path, "w", encoding="utf-8") as f:
                 f.write(new_code)
             restart_program()
 
     def play_game(self):
-        messagebox.showinfo("Game", "Starting game window...")
+        messagebox.showinfo("Game", "Starting game...")
 
     def toggle_lock(self):
         global SCREEN_LOCK
@@ -241,16 +210,9 @@ class GameMenu:
 
     def handle_connect(self):
         if current_world != house:
-            stick.say("Get in the house first!")
+            stick.say("Get inside!")
             return
-        
-        if datetime.now().hour >= 21 or datetime.now().hour < 6:
-            choice = messagebox.askquestion("Sleeping", "Give food to wake him up?")
-            if choice == 'no': root.destroy()
-            elif random.random() > 0.5: self.start_connection()
-            else: stick.say("Too tired...")
-        else:
-            self.start_connection()
+        self.start_connection()
 
     def start_connection(self):
         stick.mode = "GO_TO_PC"
@@ -268,8 +230,7 @@ class GameMenu:
 
     def auto_loop(self):
         self.time_label.config(text=datetime.now().strftime("%H:%M:%S"))
-        # Check for update every 15 seconds
-        if int(datetime.now().strftime("%S")) % 15 == 0:
+        if int(datetime.now().strftime("%S")) % 10 == 0:
             self.check_for_global_update()
         self.window.after(1000, self.auto_loop)
 
@@ -290,16 +251,22 @@ class World:
             self.canvas.create_rectangle(110, 200, 140, 240, fill="#002244")
 
     def clear(self): self.canvas.delete("all"); self.draw_decorations()
+    
     def draw_stick(self, s):
         c = self.canvas; cx, cy = s.x, s.y
+        # Head
         c.create_oval(cx-15, cy-45, cx+15, cy-15, outline="white", width=3)
+        # Body
         c.create_line(cx, cy-15, cx, cy+60, fill="white", width=3)
+        # Arms (Swing based on s.step)
         arm = math.sin(s.step) * 20
         c.create_line(cx, cy+10, cx-40, cy+40+arm, fill="white", width=3)
         c.create_line(cx, cy+10, cx+40, cy+40-arm, fill="white", width=3)
+        # Legs (Swing based on s.step)
         leg = math.sin(s.step) * 25
         c.create_line(cx, cy+60, cx-25, cy+120-leg, fill="white", width=3)
         c.create_line(cx, cy+60, cx+25, cy+120+leg, fill="white", width=3)
+        
         if s.message:
             c.create_rectangle(cx-80, cy-110, cx+80, cy-60, fill="white")
             c.create_text(cx, cy-85, text=s.message, fill="black", font=("Arial", 9, "bold"))
