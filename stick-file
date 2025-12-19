@@ -16,7 +16,7 @@ import random
 from datetime import datetime
 
 # --- CONFIGURATION ---
-VERSION = 0.1 
+VERSION = 1.0  
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/dog629/stick/main/stick-file"
 
 # ---------------------------- #
@@ -42,7 +42,7 @@ SCREEN_LOCK = False
 class StickFigure:
     def __init__(self):
         self.x, self.y = 100, 300 
-        self.dx, self.dy = 0, 0
+        self.dx, self.dy = random.uniform(-2, 2), random.uniform(-2, 2)
         self.step = 0
         self.message = ""
         self.timer = 0
@@ -50,11 +50,11 @@ class StickFigure:
         self.has_greeted = False
         self.is_eating = False
 
-    def update(self, current_win, other_win):
+    def update(self, current_win):
         now = datetime.now().hour
-        self.step += 0.25 # This makes the legs move
+        self.step += 0.25 
         
-        # 1. HANDLE SPECIAL MODES
+        # 1. LOGIC STATES
         if self.mode == "GO_TO_PC":
             tx, ty = 125, 200 
             dist_x, dist_y = tx - self.x, ty - self.y
@@ -64,69 +64,57 @@ class StickFigure:
                 self.dx, self.dy = 0, 0
                 self.say("Connected!")
         
-        else:
-            # 2. CHECK THE TIME SCHEDULE
-            if 6 <= now < 11: # Morning
-                if not self.has_greeted:
-                    self.say("Morning, human!")
-                    self.has_greeted = True
-            
-            elif 12 <= now < 14: # Lunch
-                if not self.is_eating:
-                    self.say("Mmm... lunch time!")
-                    self.is_eating = True
-            
-            elif now >= 21 or now < 6: # Sleeping
-                self.mode = "SLEEP"
-                self.x, self.y = 80, 300 
-                self.dx, self.dy = 0, 0
-                if self.timer == 0: self.message = "Zzz..."
-            
-            else: # Reset states outside of specific times
-                self.is_eating = False
-                self.has_greeted = False
-                self.mode = "WANDER"
+        elif now >= 21 or now < 6: # Sleep Mode
+            self.mode = "SLEEP"
+            self.x, self.y = 80, 300 
+            self.dx, self.dy = 0, 0
+            if self.timer == 0: self.message = "Zzz..."
+        
+        else: # Normal Daytime / Lunch
+            self.mode = "WANDER"
+            if 6 <= now < 11 and not self.has_greeted:
+                self.say("Morning, human!")
+                self.has_greeted = True
+            elif 12 <= now < 14 and not self.is_eating:
+                self.say("Mmm... lunch time!")
+                self.is_eating = True
 
-            # 3. APPLY MOVEMENT (If not sleeping or at menu)
-            if self.mode != "SLEEP" and self.mode != "AT_MENU":
-                # Add a bit of random push to the speed
-                self.dx += random.uniform(-0.3, 0.3)
-                self.dy += random.uniform(-0.3, 0.3)
-                # Keep speed in a reasonable range
-                self.dx = max(-5, min(5, self.dx))
-                self.dy = max(-5, min(5, self.dy))
+        # 2. MOVEMENT ENGINE (Only if wandering)
+        if self.mode == "WANDER":
+            if random.random() < 0.05: # Randomly change direction
+                self.dx += random.uniform(-1, 1)
+                self.dy += random.uniform(-1, 1)
             
-        # 4. APPLY PHYSICS
+            # Speed Caps
+            self.dx = max(-4, min(4, self.dx))
+            self.dy = max(-4, min(4, self.dy))
+
         self.x += self.dx
         self.y += self.dy
 
-        # 5. WINDOW BOUNDARIES & PUSHING
+        # 3. WINDOW COLLISIONS
         win_x, win_y = current_win.winfo_x(), current_win.winfo_y()
         pushed_dx, pushed_dy = 0, 0
         
         if self.x <= 40: 
-            self.x = 40
-            pushed_dx = -3 # Push window left
+            self.x = 40; pushed_dx = -6; self.dx *= -1 
         if self.x >= WIDTH - 40: 
-            self.x = WIDTH - 40
-            pushed_dx = 3 # Push window right
+            self.x = WIDTH - 40; pushed_dx = 6; self.dx *= -1
         if self.y <= 60: 
-            self.y = 60
-            pushed_dy = -3
+            self.y = 60; pushed_dy = -6; self.dy *= -1
         if self.y >= HEIGHT - 130: 
-            self.y = HEIGHT - 130
-            pushed_dy = 3
+            self.y = HEIGHT - 130; pushed_dy = 6; self.dy *= -1
 
-        # Move the actual window
+        # 4. MONITOR LOCK LOGIC
         new_x = win_x + pushed_dx
-        new_y = max(0, min(SCREEN_HEIGHT - HEIGHT - TASKBAR_HEIGHT, win_y + pushed_dy))
+        new_y = win_y + pushed_dy
         
-        if SCREEN_LOCK: 
+        if SCREEN_LOCK:
             new_x = max(0, min(SCREEN_WIDTH - WIDTH, new_x))
+            new_y = max(0, min(SCREEN_HEIGHT - HEIGHT - TASKBAR_HEIGHT, new_y))
             
         current_win.geometry(f"+{int(new_x)}+{int(new_y)}")
         
-        # Message Timer
         if self.timer > 0:
             self.timer -= 1
             if self.timer == 0: self.message = ""
@@ -141,35 +129,35 @@ class StickFigure:
 class GameMenu:
     def __init__(self):
         self.window = tk.Toplevel()
-        self.window.title("Game Menu")
-        self.window.geometry("280x820+450+300")
-        self.window.configure(bg="#222")
+        self.window.title("Control Panel")
+        self.window.geometry("280x500+450+300")
+        self.window.configure(bg="#1a1a1a")
         self.window.attributes('-topmost', True)
         
-        self.status_label = tk.Label(self.window, text="SYSTEM IDLE", fg="white", bg="#222", font=("Arial", 10, "bold"))
-        self.status_label.pack(pady=10)
+        tk.Label(self.window, text="SYSTEM STATUS", fg="gray", bg="#1a1a1a").pack(pady=5)
+        self.status_label = tk.Label(self.window, text="IDLE", fg="white", bg="#1a1a1a", font=("Arial", 12, "bold"))
+        self.status_label.pack()
 
-        self.time_label = tk.Label(self.window, text="", fg="cyan", bg="#222", font=("Consolas", 12))
-        self.time_label.pack()
+        self.time_label = tk.Label(self.window, text="", fg="cyan", bg="#1a1a1a", font=("Consolas", 10))
+        self.time_label.pack(pady=5)
 
-        self.btn_pong = tk.Button(self.window, text="Classic Pong", state="disabled", width=20, command=self.play_game)
-        self.btn_pong.pack(pady=5)
-        
-        self.btn_dodge = tk.Button(self.window, text="Dodge Ball", state="disabled", width=20, command=self.play_game)
-        self.btn_dodge.pack(pady=5)
-
-        self.connect_btn = tk.Button(self.window, text="CONNECT TO HOUSE", command=self.handle_connect)
+        self.connect_btn = tk.Button(self.window, text="CONNECT TO PC", width=20, command=self.handle_connect)
         self.connect_btn.pack(pady=10)
 
-        tk.Label(self.window, text="--- MONITOR CONTROL ---", fg="gray", bg="#222").pack(pady=10)
+        # MONITOR CONTROL SECTION
+        tk.Label(self.window, text="--- MONITOR CONTROL ---", fg="gray", bg="#1a1a1a").pack(pady=10)
         self.lock_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(self.window, text="Lock Screen", variable=self.lock_var, command=self.toggle_lock, bg="#222", fg="white", selectcolor="#444").pack()
+        self.lock_cb = tk.Checkbutton(self.window, text="Lock to Screen 1", variable=self.lock_var, 
+                                      command=self.toggle_lock, bg="#1a1a1a", fg="white", 
+                                      selectcolor="#333", activebackground="#1a1a1a")
+        self.lock_cb.pack()
 
-        tk.Label(self.window, text="--- SYSTEM ---", fg="gray", bg="#222").pack(pady=10)
+        # UPDATE SECTION
+        tk.Label(self.window, text="--- SYSTEM ---", fg="gray", bg="#1a1a1a").pack(pady=10)
         self.update_btn = tk.Button(self.window, text=f"v{VERSION} - Up to Date", bg="#111", fg="gray", state="disabled")
         self.update_btn.pack(pady=5)
         
-        tk.Button(self.window, text="RESTART", bg="#442222", fg="white", command=restart_program).pack(pady=10)
+        tk.Button(self.window, text="RESTART", bg="#3d1414", fg="white", command=restart_program).pack(pady=5)
 
         self.auto_loop()
 
@@ -178,59 +166,42 @@ class GameMenu:
             nocache = random.randint(1, 99999)
             url = f"{GITHUB_RAW_URL}?nocache={nocache}"
             resp = requests.get(url, timeout=5)
-            remote_text = resp.text
-            
             remote_v = VERSION
-            for line in remote_text.split('\n'):
+            for line in resp.text.split('\n'):
                 if "VERSION =" in line:
-                    parts = line.split('=')
-                    remote_v = float(parts[1].split('#')[0].strip())
+                    remote_v = float(line.split('=')[1].strip())
                     break
-            
             if remote_v > VERSION:
-                self.update_btn.config(text=f"UPDATE TO v{remote_v}", bg="cyan", fg="black", state="normal", command=lambda: self.apply_update(remote_text))
-            else:
-                self.update_btn.config(text=f"v{VERSION} - Up to Date", bg="#111", fg="gray", state="disabled")
-        except:
-            pass
+                self.update_btn.config(text=f"UPDATE TO v{remote_v}", bg="cyan", fg="black", state="normal", 
+                                       command=lambda: self.apply_update(resp.text))
+        except: pass
 
     def apply_update(self, new_code):
-        if messagebox.askyesno("Update", "Install new version?"):
-            path = os.path.abspath(sys.argv[0])
-            with open(path, "w", encoding="utf-8") as f:
+        if messagebox.askyesno("Update", "Install update?"):
+            with open(os.path.abspath(sys.argv[0]), "w", encoding="utf-8") as f:
                 f.write(new_code)
             restart_program()
-
-    def play_game(self):
-        messagebox.showinfo("Game", "Starting game...")
 
     def toggle_lock(self):
         global SCREEN_LOCK
         SCREEN_LOCK = self.lock_var.get()
 
     def handle_connect(self):
-        if current_world != house:
-            stick.say("Get inside!")
-            return
-        self.start_connection()
-
-    def start_connection(self):
-        stick.mode = "GO_TO_PC"
-        self.status_label.config(text="CONNECTING...", fg="yellow")
-        self.check_arrival()
+        if current_world == house:
+            stick.mode = "GO_TO_PC"
+            self.status_label.config(text="CONNECTING...", fg="yellow")
+            self.check_arrival()
+        else: stick.say("Get inside first!")
 
     def check_arrival(self):
         if stick.mode == "AT_MENU":
             self.status_label.config(text="ONLINE", fg="lime")
-            self.btn_pong.config(state="normal")
-            self.btn_dodge.config(state="normal")
-            self.connect_btn.pack_forget()
-        else:
-            self.window.after(100, self.check_arrival)
+            self.connect_btn.config(state="disabled", text="CONNECTED")
+        else: self.window.after(100, self.check_arrival)
 
     def auto_loop(self):
         self.time_label.config(text=datetime.now().strftime("%H:%M:%S"))
-        if int(datetime.now().strftime("%S")) % 10 == 0:
+        if int(datetime.now().strftime("%S")) % 15 == 0:
             self.check_for_global_update()
         self.window.after(1000, self.auto_loop)
 
@@ -246,34 +217,28 @@ class World:
 
     def draw_decorations(self):
         if self.is_house:
-            self.canvas.create_rectangle(30, 350, 150, 400, fill="#444")
-            self.canvas.create_rectangle(100, 250, 150, 260, fill="#555")
-            self.canvas.create_rectangle(110, 200, 140, 240, fill="#002244")
+            self.canvas.create_rectangle(30, 350, 150, 400, fill="#444") # Bed
+            self.canvas.create_rectangle(110, 200, 140, 240, fill="#002244") # PC
 
     def clear(self): self.canvas.delete("all"); self.draw_decorations()
     
     def draw_stick(self, s):
         c = self.canvas; cx, cy = s.x, s.y
-        # Head
-        c.create_oval(cx-15, cy-45, cx+15, cy-15, outline="white", width=3)
-        # Body
-        c.create_line(cx, cy-15, cx, cy+60, fill="white", width=3)
-        # Arms (Swing based on s.step)
+        c.create_oval(cx-15, cy-45, cx+15, cy-15, outline="white", width=3) # Head
+        c.create_line(cx, cy-15, cx, cy+60, fill="white", width=3) # Body
         arm = math.sin(s.step) * 20
-        c.create_line(cx, cy+10, cx-40, cy+40+arm, fill="white", width=3)
+        c.create_line(cx, cy+10, cx-40, cy+40+arm, fill="white", width=3) 
         c.create_line(cx, cy+10, cx+40, cy+40-arm, fill="white", width=3)
-        # Legs (Swing based on s.step)
         leg = math.sin(s.step) * 25
-        c.create_line(cx, cy+60, cx-25, cy+120-leg, fill="white", width=3)
+        c.create_line(cx, cy+60, cx-25, cy+120-leg, fill="white", width=3) 
         c.create_line(cx, cy+60, cx+25, cy+120+leg, fill="white", width=3)
-        
         if s.message:
             c.create_rectangle(cx-80, cy-110, cx+80, cy-60, fill="white")
             c.create_text(cx, cy-85, text=s.message, fill="black", font=("Arial", 9, "bold"))
 
 root = tk.Tk(); root.withdraw()
-outside = World("Outside World", 100); house = World("House", 800, is_house=True)
-stick = StickFigure(); current_world = outside; other_world = house
+outside = World("Outside", 100); house = World("House", 800, is_house=True)
+stick = StickFigure(); current_world = outside
 house.entry.place_forget()
 menu = GameMenu()
 
@@ -292,7 +257,7 @@ outside.entry.bind("<Return>", lambda e: handle_chat(e, outside))
 house.entry.bind("<Return>", lambda e: handle_chat(e, house))
 
 def loop():
-    stick.update(current_world.window, other_world.window)
+    stick.update(current_world.window)
     outside.clear(); house.clear()
     current_world.draw_stick(stick)
     root.after(30, loop)
