@@ -7,7 +7,7 @@ try:
 except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
     import requests
-
+q = 1
 import tkinter as tk
 from tkinter import messagebox
 import math
