@@ -1,0 +1,245 @@
+import tkinter as tk
+from tkinter import messagebox
+import math
+import random
+import hashlib
+import sys
+import os
+from datetime import datetime
+
+# ---------------------------- #
+# SYSTEM & FILE RESTART LOGIC
+# ---------------------------- #
+def get_file_hash():
+    try:
+        path = os.path.abspath(sys.argv[0])
+        with open(path, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()
+    except:
+        return "default"
+
+def restart_program():
+    python = sys.executable
+    os.execl(python, python, *sys.argv)
+
+STARTUP_HASH = get_file_hash()
+WIDTH, HEIGHT = 600, 500
+TASKBAR_HEIGHT = 40
+
+root_detect = tk.Tk()
+SCREEN_WIDTH = root_detect.winfo_screenwidth()
+SCREEN_HEIGHT = root_detect.winfo_screenheight()
+root_detect.withdraw()
+
+SCREEN_LOCK = False
+
+# ---------------------------- #
+# STICK FIGURE
+# ---------------------------- #
+class StickFigure:
+    def __init__(self):
+        self.x, self.y = 100, 300 
+        self.dx, self.dy = 0, 0
+        self.step = 0
+        self.message = ""
+        self.timer = 0
+        self.mode = "WANDER"
+        self.has_greeted = False
+        self.is_eating = False
+
+    def update(self, current_win, other_win):
+        now = datetime.now().hour
+        self.step += 0.25
+        
+        if self.mode == "GO_TO_PC":
+            tx, ty = 125, 200 
+            dist_x, dist_y = tx - self.x, ty - self.y
+            self.dx, self.dy = dist_x / 10, dist_y / 10
+            if abs(dist_x) < 5 and abs(dist_y) < 5:
+                self.mode = "AT_MENU"
+                self.dx, self.dy = 0, 0
+                self.say("Hey!")
+        else:
+            if 6 <= now < 11:
+                if not self.has_greeted:
+                    self.x, self.y = 100, 300 
+                    self.say("Morning, human!")
+                    self.has_greeted = True
+                self.mode = "WANDER"
+            elif 12 <= now < 14:
+                if not self.is_eating:
+                    self.say("Mmm... lunch time!")
+                    self.is_eating = True
+                    self.x, self.y = 300, 300
+                self.dx, self.dy = random.uniform(-0.5, 0.5), random.uniform(-0.5, 0.5)
+            elif now >= 21 or now < 6:
+                self.x, self.y = 80, 300 
+                self.dx, self.dy = 0, 0
+                if self.timer == 0: self.message = "Zzz..."
+            else:
+                self.mode = "WANDER"
+                self.is_eating = False
+                self.has_greeted = False
+
+            if self.mode == "WANDER" and not (now >= 21 or now < 6):
+                self.dx += random.uniform(-0.2, 0.2)
+                self.dy += random.uniform(-0.2, 0.2)
+                self.dx = max(-6, min(6, self.dx))
+                self.dy = max(-6, min(6, self.dy))
+
+        self.x += self.dx; self.y += self.dy
+        win_x, win_y = current_win.winfo_x(), current_win.winfo_y()
+        pushed_dx, pushed_dy = 0, 0
+        if self.x <= 40: self.x = 40; pushed_dx = -abs(int(self.dx))
+        if self.x >= WIDTH - 40: self.x = WIDTH - 40; pushed_dx = abs(int(self.dx))
+        if self.y <= 60: self.y = 60; pushed_dy = -abs(int(self.dy))
+        if self.y >= HEIGHT - 130: self.y = HEIGHT - 130; pushed_dy = abs(int(self.dy))
+
+        new_x = win_x + pushed_dx
+        new_y = max(0, min(SCREEN_HEIGHT - HEIGHT - TASKBAR_HEIGHT, win_y + pushed_dy))
+        if SCREEN_LOCK: new_x = max(0, min(SCREEN_WIDTH - WIDTH, new_x))
+        current_win.geometry(f"+{int(new_x)}+{int(new_y)}")
+        
+        if self.timer > 0:
+            self.timer -= 1
+            if self.timer == 0: self.message = ""
+
+    def say(self, text):
+        self.message = text; self.timer = 150
+
+# ---------------------------- #
+# GAME MENU & UI
+# ---------------------------- #
+class GameMenu:
+    def __init__(self):
+        self.window = tk.Toplevel()
+        self.window.title("Game Menu")
+        self.window.geometry("280x800+450+300")
+        self.window.configure(bg="#222")
+        self.window.attributes('-topmost', True)
+        
+        self.status_label = tk.Label(self.window, text="SYSTEM IDLE", fg="white", bg="#222", font=("Arial", 10, "bold"))
+        self.status_label.pack(pady=10)
+
+        self.time_label = tk.Label(self.window, text="", fg="cyan", bg="#222", font=("Consolas", 12))
+        self.time_label.pack()
+
+        self.btn_pong = tk.Button(self.window, text="Classic Pong", state="disabled", width=20, command=self.play_pong)
+        self.btn_pong.pack(pady=5)
+        self.btn_dodge = tk.Button(self.window, text="Dodge Ball", state="disabled", width=20, command=self.play_dodge)
+        self.btn_dodge.pack(pady=5)
+
+        self.connect_btn = tk.Button(self.window, text="CONNECT TO HOUSE", command=self.handle_night_prompt)
+        self.connect_btn.pack(pady=10)
+
+        tk.Label(self.window, text="--- MONITOR CONTROL ---", fg="gray", bg="#222").pack(pady=10)
+        self.lock_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(self.window, text="Lock to Screen 1", variable=self.lock_var, command=self.toggle_lock, bg="#222", fg="white", selectcolor="#444").pack()
+
+        tk.Label(self.window, text="--- SYSTEM ---", fg="gray", bg="#222").pack(pady=10)
+        self.update_btn = tk.Button(self.window, text="Scanning Source...", bg="#111", fg="gray", state="disabled")
+        self.update_btn.pack(pady=5)
+        tk.Button(self.window, text="RESTART SOFTWARE", bg="#442222", fg="white", command=restart_program).pack(pady=10)
+
+        self.auto_update_ui()
+
+    def play_pong(self):
+        pwin = tk.Toplevel(); pwin.title("Pong"); pwin.geometry("400x300")
+        tk.Label(pwin, text="[ PONG GAME STARTED ]", font=("Arial", 14)).pack(pady=50)
+
+    def play_dodge(self):
+        dwin = tk.Toplevel(); dwin.title("Dodge"); dwin.geometry("400x300")
+        tk.Label(dwin, text="[ DODGE BALL STARTED ]", font=("Arial", 14)).pack(pady=50)
+
+    def toggle_lock(self):
+        global SCREEN_LOCK
+        SCREEN_LOCK = self.lock_var.get()
+
+    def handle_night_prompt(self):
+        if datetime.now().hour >= 21 or datetime.now().hour < 6:
+            choice = messagebox.askquestion("Sleeping", "Stick Figure is sleeping. Give food to wake up?")
+            if choice == 'no': root.destroy()
+            elif random.random() > 0.5: self.start_connection()
+            else: stick.say("Too tired...")
+        else: self.start_connection()
+
+    def start_connection(self):
+        if current_world != house: stick.say("Get inside!"); return
+        stick.mode = "GO_TO_PC"; self.status_label.config(text="CONNECTING...", fg="yellow")
+        self.check_stick_arrival()
+
+    def check_stick_arrival(self):
+        if stick.mode == "AT_MENU":
+            self.status_label.config(text="ONLINE", fg="lime")
+            self.btn_pong.config(state="normal"); self.btn_dodge.config(state="normal")
+            self.connect_btn.pack_forget()
+        else: self.window.after(100, self.check_stick_arrival)
+
+    def auto_update_ui(self):
+        self.time_label.config(text=datetime.now().strftime("%H:%M:%S"))
+        if get_file_hash() != STARTUP_HASH:
+            self.update_btn.config(text="SOURCE UPDATED!", bg="cyan", fg="black", state="normal", command=restart_program)
+        self.window.after(1000, self.auto_update_ui)
+
+# ---------------------------- #
+# WORLD SETUP
+# ---------------------------- #
+class World:
+    def __init__(self, title, x, is_house=False):
+        self.window = tk.Toplevel(); self.window.title(title); self.window.geometry(f"{WIDTH}x{HEIGHT}+{x}+200")
+        self.window.configure(bg="black"); self.is_house = is_house
+        self.canvas = tk.Canvas(self.window, width=WIDTH, height=HEIGHT, bg="black", highlightthickness=0); self.canvas.pack()
+        self.entry = tk.Entry(self.window, font=("Arial", 12), bg="#111", fg="white"); self.entry.place(x=10, y=HEIGHT-35, width=WIDTH-20)
+
+    def draw_decorations(self):
+        if self.is_house:
+            self.canvas.create_rectangle(30, 350, 150, 400, fill="#444")
+            self.canvas.create_rectangle(100, 250, 150, 260, fill="#555")
+            self.canvas.create_rectangle(110, 200, 140, 240, fill="#002244")
+
+    def clear(self): self.canvas.delete("all"); self.draw_decorations()
+    def draw_stick(self, s):
+        c = self.canvas; cx, cy = s.x, s.y
+        c.create_oval(cx-15, cy-45, cx+15, cy-15, outline="white", width=3)
+        c.create_line(cx, cy-15, cx, cy+60, fill="white", width=3)
+        arm = math.sin(s.step) * 20
+        c.create_line(cx, cy+10, cx-40, cy+40+arm, fill="white", width=3)
+        c.create_line(cx, cy+10, cx+40, cy+40-arm, fill="white", width=3)
+        leg = math.sin(s.step) * 25
+        c.create_line(cx, cy+60, cx-25, cy+120-leg, fill="white", width=3)
+        c.create_line(cx, cy+60, cx+25, cy+120+leg, fill="white", width=3)
+        if s.message:
+            c.create_rectangle(cx-80, cy-110, cx+80, cy-60, fill="white")
+            c.create_text(cx, cy-85, text=s.message, fill="black", font=("Arial", 9, "bold"))
+
+root = tk.Tk(); root.withdraw()
+outside = World("Outside World", 100); house = World("House", 800, is_house=True)
+stick = StickFigure(); current_world = outside; other_world = house
+house.entry.place_forget()
+menu = GameMenu()
+
+def handle_chat(event, world):
+    global current_world
+    text = world.entry.get().strip().lower(); world.entry.delete(0, tk.END)
+    if "come in" in text:
+        outside.entry.place_forget(); house.entry.place(x=10, y=HEIGHT-35, width=WIDTH-20)
+        current_world = house
+    elif "come out" in text:
+        house.entry.place_forget(); outside.entry.place(x=10, y=HEIGHT-35, width=WIDTH-20)
+        current_world = outside
+    elif "are you making anything" in text:
+        stick.say("yes, i sure am making more games for you to play!")
+        menu.window.after(3000, lambda: stick.say("if you want them faster donate to the devs"))
+        menu.window.after(6000, lambda: stick.say("it really helps!"))
+    else: stick.say("Thinking...")
+
+outside.entry.bind("<Return>", lambda e: handle_chat(e, outside))
+house.entry.bind("<Return>", lambda e: handle_chat(e, house))
+
+def loop():
+    stick.update(current_world.window, other_world.window)
+    outside.clear(); house.clear()
+    current_world.draw_stick(stick)
+    root.after(30, loop)
+
+loop(); root.mainloop()
