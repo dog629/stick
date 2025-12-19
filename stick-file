@@ -17,7 +17,7 @@ import hashlib
 from datetime import datetime
 
 # --- CONFIGURATION ---
-VERSION = 1.0  # Change this to 1.1, 1.2, etc. on GitHub to trigger updates
+VERSION = 1.1  # Change this to 1.1, 1.2, etc. on GitHub to trigger updates
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/dog629/stick/main/stick-file"
 
 # ---------------------------- #
@@ -50,6 +50,59 @@ class StickFigure:
         self.mode = "WANDER"
         self.has_greeted = False
         self.is_eating = False
+
+    def update(self, current_win, other_win):
+        now = datetime.now().hour
+        self.step += 0.25
+        
+        if self.mode == "GO_TO_PC":
+            tx, ty = 125, 200 
+            dist_x, dist_y = tx - self.x, ty - self.y
+            self.dx, self.dy = dist_x / 10, dist_y / 15
+            if abs(dist_x) < 5 and abs(dist_y) < 5:
+                self.mode = "AT_MENU"
+                self.dx, self.dy = 0, 0
+                self.say("Connected!")
+        
+        else:
+            # --- MORNING ---
+            if 6 <= now < 11:
+                if not self.has_greeted:
+                    self.x, self.y = 100, 300 
+                    self.say("Morning, human!")
+                    self.has_greeted = True
+            
+            # --- LUNCH (Wandering while eating) ---
+            elif 12 <= now < 14:
+                if not self.is_eating:
+                    self.say("Mmm... lunch time!")
+                    self.is_eating = True
+                # No 'return' or 'fixed x/y' here, so it falls through to Wander logic below
+            
+            # --- NIGHT ---
+            elif now >= 21 or now < 6:
+                self.x, self.y = 80, 300 
+                self.dx, self.dy = 0, 0
+                if self.timer == 0: self.message = "Zzz..."
+            
+            # --- RESET STATES ---
+            else:
+                self.is_eating = False
+                self.has_greeted = False
+
+            # --- NORMAL ACTIONS (Wander Movement) ---
+            # This runs during the Day AND during Lunch
+            if not (now >= 21 or now < 6):
+                self.dx += random.uniform(-0.2, 0.2)
+                self.dy += random.uniform(-0.2, 0.2)
+                self.dx = max(-6, min(6, self.dx))
+                self.dy = max(-6, min(6, self.dy))
+            else:
+                self.dx, self.dy = 0, 0
+
+        # Apply physics and window pushing
+        self.x += self.dx; self.y += self.dy
+        # ... (rest of the boundary logic from previous code)
 
     def update(self, current_win, other_win):
         now = datetime.now().hour
