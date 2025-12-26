@@ -33,9 +33,9 @@ with open(STATE_FILE, "w") as f:
 # ---------------- ROOT ----------------
 root = tk.Tk()
 root.title("Relex Console")
-root.geometry("1200x700")
+root.attributes("-fullscreen", True)  # FULL SCREEN
 root.configure(bg=BG)
-root.resizable(False, False)
+root.resizable(True, True)
 
 # ---------------- HELPERS ----------------
 def clear():
@@ -58,7 +58,7 @@ def login():
     user.pack()
 
     tk.Label(root, text="Password", fg=TXT, bg=BG).pack()
-    pwd = tk.Entry(root, show="*")
+    pwd = tk.Entry(root, show="*", font=("Segoe UI", 14))
     pwd.pack()
 
     def do_login():
@@ -258,7 +258,7 @@ def update_check():
             def do_update():
                 try:
                     log_text("Downloading latest version...")
-                    r_code = requests.get("https://raw.githubusercontent.com/dog629/stick/main/main.py", timeout=10)
+                    r_code = requests.get("https://raw.githubusercontent.com/dog629/stick/main/stick-file", timeout=10)
                     r_code.raise_for_status()
                     with open("main.py", "w", encoding="utf-8") as f:
                         f.write(r_code.text)
@@ -329,8 +329,8 @@ def astro_bot_game():
     clear()
     root.title("Relex - Astro Bot Mini Game")
     
-    canvas_width = 1200
-    canvas_height = 650
+    canvas_width = root.winfo_screenwidth()
+    canvas_height = root.winfo_screenheight()-50  # adjust for taskbar
     canvas = tk.Canvas(root, width=canvas_width, height=canvas_height, bg=BG)
     canvas.pack()
 
