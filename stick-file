@@ -14,7 +14,7 @@ if os.path.exists(STATE_FILE):
 else:
     state = {}
 
-# ---------------- MIGRATION / DEFAULTS ----------------
+# ---------------- DEFAULTS ----------------
 if "accounts" not in state:
     state["accounts"] = {
         "AlmondBadger403": {"password": "Bears123", "games": []},
@@ -33,7 +33,7 @@ with open(STATE_FILE, "w") as f:
 # ---------------- ROOT ----------------
 root = tk.Tk()
 root.title("Relex Console")
-root.geometry("900x520")
+root.geometry("1200x700")
 root.configure(bg=BG)
 root.resizable(False, False)
 
@@ -42,87 +42,9 @@ def clear():
     for w in root.winfo_children():
         w.destroy()
 
-def log_box(parent):
-    box = tk.Text(parent, height=10, bg="#020617", fg="#38bdf8")
-    box.pack(fill="x", padx=20, pady=10)
-    box.insert("end", "[Relex Network Monitor]\n")
-    box.configure(state="disabled")
-    return box
-
-def log(box, text):
-    box.configure(state="normal")
-    box.insert("end", text + "\n")
-    box.see("end")
-    box.configure(state="disabled")
-
 def save_state():
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
-
-# ---------------- SIGN UP ----------------
-def signup():
-    clear()
-    frame = tk.Frame(root, bg=BG)
-    frame.pack(expand=True, fill="both")
-
-    tk.Label(frame, text="Create Account",
-             font=("Segoe UI", 26, "bold"),
-             fg=TXT, bg=BG).pack(pady=10)
-
-    user = tk.Entry(frame)
-    pwd = tk.Entry(frame, show="*")
-
-    tk.Label(frame, text="Username", fg=TXT, bg=BG).pack()
-    user.pack()
-    tk.Label(frame, text="Password", fg=TXT, bg=BG).pack()
-    pwd.pack()
-
-    logs = log_box(frame)
-
-    def begin():
-        u, p = user.get(), pwd.get()
-        if not u or not p:
-            messagebox.showerror("Error", "All fields required")
-            return
-        if u in state["accounts"]:
-            messagebox.showerror("Error", "Account already exists")
-            return
-
-        log(logs, "CONNECT → auth.relex.net")
-        log(logs, f"SEND → username={u}")
-        log(logs, "SEND → password=[ENCRYPTED]")
-        log(logs, "SEND → protocol=DNS-SIGNAL")
-
-        bar = ttk.Progressbar(frame, length=500)
-        bar.pack(pady=10)
-        percent = tk.Label(frame, text="0%", fg=TXT, bg=BG)
-        percent.pack()
-
-        total = random.randint(300, 3600)
-        step = total // 100
-        progress = 0
-
-        def update():
-            nonlocal progress
-            if progress < 100:
-                progress += 1
-                bar["value"] = progress
-                percent.config(text=f"{progress}%")
-                log(logs, f"SERVER → progress {progress}%")
-                root.after(step * 10, update)
-            else:
-                state["accounts"][u] = {"password": p, "games": []}
-                state["setup_complete"] = True
-                save_state()
-                messagebox.showinfo("Success", "Account created")
-                login()
-
-        update()
-
-    tk.Button(frame, text="Sign Up", bg="#2563eb", fg="white",
-              font=("Segoe UI", 14, "bold"), border=0, command=begin).pack(pady=10)
-    tk.Button(frame, text="Back", bg="#334155", fg="white",
-              border=0, command=login).pack()
 
 # ---------------- LOGIN ----------------
 def login():
@@ -131,16 +53,16 @@ def login():
              font=("Segoe UI", 26, "bold"),
              fg=TXT, bg=BG).pack(pady=20)
 
-    user = tk.Entry(root)
-    pwd = tk.Entry(root, show="*")
-
     tk.Label(root, text="Username", fg=TXT, bg=BG).pack()
+    user = tk.Entry(root)
     user.pack()
+
     tk.Label(root, text="Password", fg=TXT, bg=BG).pack()
+    pwd = tk.Entry(root, show="*")
     pwd.pack()
 
     def do_login():
-        u, p = user.get(), pwd.get()
+        u, p = user.get().strip(), pwd.get().strip()
         if u in state["accounts"] and state["accounts"][u]["password"] == p:
             state["current_user"] = u
             save_state()
@@ -152,6 +74,89 @@ def login():
               font=("Segoe UI", 14, "bold"), border=0, command=do_login).pack(pady=10)
     tk.Button(root, text="Sign Up", bg="#10b981", fg="white",
               font=("Segoe UI", 14, "bold"), border=0, command=signup).pack()
+
+# ---------------- SIGN UP ----------------
+def signup():
+    clear()
+    frame = tk.Frame(root, bg=BG)
+    frame.pack(expand=True, fill="both")
+
+    tk.Label(frame, text="Create Account",
+             font=("Segoe UI", 26, "bold"),
+             fg=TXT, bg=BG).pack(pady=10)
+
+    tk.Label(frame, text="Username", fg=TXT, bg=BG).pack()
+    user = tk.Entry(frame, font=("Segoe UI", 14))
+    user.pack(pady=5)
+
+    tk.Label(frame, text="Password", fg=TXT, bg=BG).pack()
+    pwd = tk.Entry(frame, show="*", font=("Segoe UI", 14))
+    pwd.pack(pady=5)
+
+    tk.Label(frame, text="⚠️ Account creation may take up to 24 hours\n"
+                         "due to DNS transfer. Relex cannot control this.\n"
+                         "We will show the most accurate progress possible.",
+             fg="#facc15", bg=BG, font=("Segoe UI", 12)).pack(pady=10)
+
+    logs = tk.Text(frame, height=10, bg="#020617", fg="#38bdf8", font=("Consolas", 10))
+    logs.pack(fill="x", padx=20, pady=10)
+    logs.insert("end", "[Relex Network Monitor]\n")
+    logs.configure(state="disabled")
+
+    def log(text):
+        logs.configure(state="normal")
+        logs.insert("end", text + "\n")
+        logs.see("end")
+        logs.configure(state="disabled")
+
+    def begin():
+        u, p = user.get().strip(), pwd.get().strip()
+        if not u or not p:
+            messagebox.showerror("Error", "All fields are required.")
+            return
+        if u in state["accounts"]:
+            messagebox.showerror("Error", "Username already exists.")
+            return
+
+        log("CONNECT → auth.relex.net")
+        log(f"SEND → username={u}")
+        log("SEND → password=[ENCRYPTED]")
+        log("SEND → protocol=DNS-SIGNAL")
+
+        transfer_label = tk.Label(frame, text="Account Creation Progress", fg=TXT, bg=BG)
+        transfer_label.pack()
+        progress_bar = ttk.Progressbar(frame, length=600)
+        progress_bar.pack(pady=5)
+        percent_label = tk.Label(frame, text="0%", fg=TXT, bg=BG, font=("Segoe UI", 14))
+        percent_label.pack()
+
+        total_seconds = random.randint(5*60, 60*60)
+        steps = 100
+        step_time = total_seconds / steps
+        progress = 0
+
+        def update_progress():
+            nonlocal progress
+            if progress < 100:
+                progress += 1
+                progress_bar["value"] = progress
+                percent_label.config(text=f"{progress}%")
+                log(f"SERVER → progress {progress}%")
+                root.after(int(step_time*1000), update_progress)
+            else:
+                state["accounts"][u] = {"password": p, "games": []}
+                state["setup_complete"] = True
+                state["current_user"] = u
+                save_state()
+                messagebox.showinfo("Success", f"Account {u} created!")
+                main_menu()
+
+        update_progress()
+
+    tk.Button(frame, text="Sign Up", bg="#2563eb", fg="white",
+              font=("Segoe UI", 14, "bold"), border=0, command=begin).pack(pady=10)
+    tk.Button(frame, text="Back", bg="#334155", fg="white",
+              border=0, command=login).pack()
 
 # ---------------- MAIN MENU ----------------
 def main_menu():
@@ -184,8 +189,7 @@ def games():
         tk.Button(root, text=g, bg=BTN, fg=TXT, font=("Segoe UI", 14), border=0,
                   command=lambda g=g: messagebox.showinfo("Game Launch", f"Launching {g}")).pack(pady=5)
 
-    # Add Astro Bot
-    tk.Button(root, text="astros", bg=BTN, fg=TXT, font=("Segoe UI", 14), border=0,
+    tk.Button(root, text="Astro Bot", bg=BTN, fg=TXT, font=("Segoe UI", 14), border=0,
               command=astro_bot_game).pack(pady=5)
 
     tk.Button(root, text="Back", bg="#334155", fg="white", border=0, command=main_menu).pack(pady=10)
@@ -265,7 +269,6 @@ def update_check():
             if remote_version != state['version']:
                 log_text("UPDATE → New version available!")
                 def do_update():
-                    # Placeholder: simulate update
                     messagebox.showinfo("Update", "Updating Relex... (simulated)")
                     state['version'] = remote_version
                     save_state()
@@ -282,7 +285,6 @@ def update_check():
 
     tk.Button(root, text="Back", bg="#334155", fg="white",
               border=0, command=main_menu).pack(pady=10)
-
 
 # ---------------- SETTINGS ----------------
 def settings():
@@ -330,19 +332,21 @@ def power():
 # ---------------- ASTRO BOT GAME ----------------
 def astro_bot_game():
     clear()
-    root.title("Relex - Astros Mini Game")
+    root.title("Relex - Astro Bot Mini Game")
     
-    canvas = tk.Canvas(root, width=900, height=500, bg=BG)
+    canvas_width = 1200
+    canvas_height = 650
+    canvas = tk.Canvas(root, width=canvas_width, height=canvas_height, bg=BG)
     canvas.pack()
 
-    player = canvas.create_rectangle(50, 400, 80, 430, fill="#2563eb")
+    player = canvas.create_rectangle(50, canvas_height-100, 80, canvas_height-70, fill="#2563eb")
     obstacles = []
     score = tk.IntVar(value=0)
-    canvas_score = canvas.create_text(850, 30, text="Score: 0", fill="white", font=("Segoe UI", 16, "bold"))
+    canvas_score = canvas.create_text(canvas_width-100, 30, text="Score: 0", fill="white", font=("Segoe UI", 18, "bold"))
 
-    player_speed = 10
-    jump_speed = 15
-    gravity = 1
+    player_speed = 15
+    jump_speed = 20
+    gravity = 1.5
     is_jumping = False
     jump_velocity = 0
 
@@ -366,12 +370,12 @@ def astro_bot_game():
             canvas.move(player, 0, jump_velocity)
             jump_velocity += gravity
             p_coords = canvas.coords(player)
-            if p_coords[3] >= 430:
-                canvas.coords(player, p_coords[0], 400, p_coords[2], 430)
+            if p_coords[3] >= canvas_height-70:
+                canvas.coords(player, p_coords[0], canvas_height-100, p_coords[2], canvas_height-70)
                 is_jumping = False
 
         for obs in obstacles:
-            canvas.move(obs, -5, 0)
+            canvas.move(obs, -6, 0)
 
         for obs in obstacles[:]:
             if canvas.coords(obs)[2] < 0:
@@ -388,9 +392,9 @@ def astro_bot_game():
                 main_menu()
                 return
 
-        if random.randint(1, 50) == 1:
-            obs_height = random.randint(20, 50)
-            obs = canvas.create_rectangle(900, 430-obs_height, 930, 430, fill="#ef4444")
+        if random.randint(1, 40) == 1:
+            obs_height = random.randint(30, 80)
+            obs = canvas.create_rectangle(canvas_width, canvas_height-70-obs_height, canvas_width+40, canvas_height-70, fill="#ef4444")
             obstacles.append(obs)
 
         root.after(20, game_loop)
