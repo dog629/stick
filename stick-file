@@ -1,362 +1,260 @@
-import sys
-import subprocess
-import os
-
-# --- STEP 1: AUTO-INSTALL REQUESTS ---
-try:
-    import requests
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
-    import requests
-
 import tkinter as tk
-from tkinter import messagebox
-import math
-import random
-from datetime import datetime
+from tkinter import ttk, messagebox
+import json, os, random, time, requests
 
-# --- CONFIGURATION ---
-VERSION = 1.0
-GITHUB_RAW_URL = "https://raw.githubusercontent.com/dog629/stick/main/stick-file"
+STATE_FILE = "state.json"
 
-def restart_program():
-    python = sys.executable
-    os.execl(python, python, *sys.argv)
+# ---------------- LOAD / SAVE STATE ----------------
+def default_state():
+    return {
+        "setup_complete": False,
+        "username": None,
+        "password": None,
+        "version": "0.0.1"
+    }
 
-WIDTH, HEIGHT = 600, 500
-TASKBAR_HEIGHT = 40
+if os.path.exists(STATE_FILE):
+    with open(STATE_FILE, "r") as f:
+        state = json.load(f)
+else:
+    state = default_state()
 
-root_detect = tk.Tk()
-SCREEN_WIDTH = root_detect.winfo_screenwidth()
-SCREEN_HEIGHT = root_detect.winfo_screenheight()
-root_detect.withdraw()
+def save_state():
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
 
-SCREEN_LOCK = False
+# ---------------- ROOT ----------------
+root = tk.Tk()
+root.title("Relex")
+root.geometry("900x520")
+root.configure(bg="#0f172a")
+root.resizable(False, False)
 
-# ---------------------------- #
-# PONG GAME CLASS
-# ---------------------------- #
-class PongGame:
-    def __init__(self, parent):
-        self.win = tk.Toplevel(parent)
-        self.win.title("Stick Pong")
-        self.win.geometry("600x400")
-        self.canvas = tk.Canvas(self.win, bg="black", width=600, height=400)
-        self.canvas.pack()
-        
-        self.ball = self.canvas.create_oval(290, 190, 310, 210, fill="white")
-        self.player = self.canvas.create_rectangle(570, 150, 585, 250, fill="cyan")
-        self.cpu = self.canvas.create_rectangle(15, 150, 30, 250, fill="white")
-        self.score_text = self.canvas.create_text(300, 30, text="0 - 0", fill="white", font=("Arial", 20))
+# ---------------- HELPERS ----------------
+def clear():
+    for w in root.winfo_children():
+        w.destroy()
 
-        self.ball_dx = 4
-        self.ball_dy = 4
-        self.player_score = 0
-        self.cpu_score = 0
-        
-        self.win.bind("<Motion>", self.move_player)
-        self.update_game()
+def log_box(parent):
+    box = tk.Text(parent, height=10, bg="#020617", fg="#38bdf8")
+    box.pack(fill="x", padx=20, pady=10)
+    box.insert("end", "[Relex Network Monitor Initialized]\n")
+    box.configure(state="disabled")
+    return box
 
-    def move_player(self, event):
-        y = event.y
-        self.canvas.coords(self.player, 570, y-50, 585, y+50)
+def log(box, text):
+    box.configure(state="normal")
+    box.insert("end", text + "\n")
+    box.see("end")
+    box.configure(state="disabled")
 
-    def update_game(self):
-        # Ball Movement
-        self.canvas.move(self.ball, self.ball_dx, self.ball_dy)
-        pos = self.canvas.coords(self.ball)
+# ---------------- SIGN UP ----------------
+def signup_screen():
+    clear()
+    frame = tk.Frame(root, bg="#0f172a")
+    frame.pack(expand=True, fill="both")
 
-        # Wall Bounce
-        if pos[1] <= 0 or pos[3] >= 400:
-            self.ball_dy *= -1
+    tk.Label(frame, text="Create Relex Account",
+             font=("Segoe UI", 26, "bold"),
+             fg="white", bg="#0f172a").pack(pady=10)
 
-        # CPU AI (Stick Figure moves this)
-        cpu_pos = self.canvas.coords(self.cpu)
-        if cpu_pos[1] + 50 < pos[1]:
-            self.canvas.move(self.cpu, 0, 4)
-        elif cpu_pos[1] + 50 > pos[1]:
-            self.canvas.move(self.cpu, 0, -4)
+    tk.Label(frame, text="Username", fg="white", bg="#0f172a").pack()
+    user = tk.Entry(frame)
+    user.pack()
 
-        # Paddle Collision
-        if self.ball_dx > 0: # Moving towards player
-            if pos[2] >= 570 and pos[1] < self.canvas.coords(self.player)[3] and pos[3] > self.canvas.coords(self.player)[1]:
-                self.ball_dx *= -1.1 # Get faster
-        else: # Moving towards CPU
-            if pos[0] <= 30 and pos[1] < self.canvas.coords(self.cpu)[3] and pos[3] > self.canvas.coords(self.cpu)[1]:
-                self.ball_dx *= -1.1
+    tk.Label(frame, text="Password", fg="white", bg="#0f172a").pack()
+    pwd = tk.Entry(frame, show="*")
+    pwd.pack()
 
-        # Scoring
-        if pos[0] <= 0:
-            self.player_score += 1
-            self.reset_ball()
-        elif pos[2] >= 600:
-            self.cpu_score += 1
-            self.reset_ball()
+    logviewer = log_box(frame)
 
-        self.canvas.itemconfig(self.score_text, text=f"{self.cpu_score} - {self.player_score}")
-        self.win.after(20, self.update_game)
+    def start_signup():
+        if not user.get() or not pwd.get():
+            messagebox.showerror("Error", "All fields required")
+            return
 
-    def reset_ball(self):
-        self.canvas.coords(self.ball, 290, 190, 310, 210)
-        self.ball_dx = 4 if random.random() > 0.5 else -4
-        self.ball_dy = random.choice([-4, 4])
+        state["username"] = user.get()
+        state["password"] = pwd.get()
 
-# ---------------------------- #
-# STICK FIGURE CLASS
-# ---------------------------- #
-class StickFigure:
-    def __init__(self):
-        self.x, self.y = 100, 300 
-        self.dx, self.dy = 0, 0
-        self.target_x, self.target_y = 100, 300
-        self.step = 0
-        self.message = ""
-        self.timer = 0
-        self.mode = "WANDER"
-        self.has_greeted = False
-        self.is_eating = False
-        self.wait_timer = 0
+        log(logviewer, "Connecting to relex.auth.server...")
+        log(logviewer, f"SENDING → username={user.get()}")
+        log(logviewer, "SENDING → password=[ENCRYPTED]")
+        log(logviewer, "SENDING → device=relex-console")
+        log(logviewer, "SENDING → protocol=DNS-SIGNAL-IX")
 
-    def update(self, current_win):
-        now = datetime.now().hour
-        
-        # 1. SPECIAL MODES (Sleep / PC)
-        if now >= 21 or now < 6:
-            self.mode = "SLEEP"
-            self.target_x, self.target_y = 80, 300
-        elif self.mode == "GO_TO_PC":
-            self.target_x, self.target_y = 125, 200
-        
-        # 2. AI PATHFINDING LOGIC
-        # If we reached our target, wait, then pick a new one
-        dist_to_target = math.sqrt((self.target_x - self.x)**2 + (self.target_y - self.y)**2)
-        
-        if dist_to_target < 5:
-            self.dx, self.dy = 0, 0
-            if self.wait_timer <= 0:
-                # Pick a new spot to walk to
-                self.target_x = random.randint(50, WIDTH - 50)
-                self.target_y = random.randint(100, HEIGHT - 150)
-                self.wait_timer = random.randint(30, 100) # Pause to "think"
+        tk.Label(frame,
+            text="Account creation may take up to 24 hours due to\nsignal/DNS conditions Relex cannot control.\nShowing most accurate progress available.",
+            fg="#94a3b8", bg="#0f172a").pack(pady=5)
+
+        bar = ttk.Progressbar(frame, length=500)
+        bar.pack(pady=10)
+
+        percent = tk.Label(frame, text="0%", fg="white", bg="#0f172a")
+        percent.pack()
+
+        total = random.randint(300, 3600)  # seconds (5min–1hr)
+        step = total // 100
+        progress = 0
+
+        def update():
+            nonlocal progress
+            if progress < 100:
+                progress += 1
+                bar["value"] = progress
+                percent.config(text=f"{progress}%")
+                log(logviewer, f"SERVER → progress update {progress}%")
+                root.after(step * 10, update)
             else:
-                self.wait_timer -= 1
+                log(logviewer, "SERVER → Account verified")
+                log(logviewer, "SERVER → Setup complete")
+                state["setup_complete"] = True
+                save_state()
+                messagebox.showinfo("Success", "Account created!")
+                login_screen()
+
+        update()
+
+    tk.Button(frame, text="Sign Up",
+              bg="#2563eb", fg="white",
+              font=("Segoe UI", 14, "bold"),
+              border=0, command=start_signup).pack(pady=10)
+
+    tk.Button(frame, text="Back to Login",
+              bg="#334155", fg="white",
+              border=0, command=login_screen).pack()
+
+# ---------------- LOGIN ----------------
+def login_screen():
+    clear()
+    tk.Label(root, text="Relex Login",
+             font=("Segoe UI", 26, "bold"),
+             fg="white", bg="#0f172a").pack(pady=20)
+
+    tk.Label(root, text="Username", fg="white", bg="#0f172a").pack()
+    user = tk.Entry(root)
+    user.pack()
+
+    tk.Label(root, text="Password", fg="white", bg="#0f172a").pack()
+    pwd = tk.Entry(root, show="*")
+    pwd.pack()
+
+    def login():
+        if user.get() == state.get("username") and pwd.get() == state.get("password"):
+            main_menu()
         else:
-            # Move toward target with a smooth vector
-            angle = math.atan2(self.target_y - self.y, self.target_x - self.x)
-            self.dx = math.cos(angle) * 3
-            self.dy = math.sin(angle) * 3
-            self.step += 0.25 # Only move legs when actually walking
+            messagebox.showerror("Login Failed", "Invalid credentials")
 
-        # 3. APPLY POSITION
-        self.x += self.dx
-        self.y += self.dy
+    tk.Button(root, text="Login",
+              bg="#2563eb", fg="white",
+              font=("Segoe UI", 14, "bold"),
+              border=0, command=login).pack(pady=10)
 
-        # 4. WINDOW PUSHING (Purposeful Push)
-        win_x, win_y = current_win.winfo_x(), current_win.winfo_y()
-        pushed_dx, pushed_dy = 0, 0
-        
-        # If he's walking into a wall, he "pushes" the window in that direction
-        if self.x <= 40: pushed_dx = -4
-        if self.x >= WIDTH - 40: pushed_dx = 4
-        if self.y <= 60: pushed_dy = -4
-        if self.y >= HEIGHT - 130: pushed_dy = 4
+    tk.Button(root, text="Sign Up",
+              bg="#10b981", fg="white",
+              font=("Segoe UI", 14, "bold"),
+              border=0, command=signup_screen).pack()
 
-        new_x, new_y = win_x + pushed_dx, win_y + pushed_dy
-        if SCREEN_LOCK:
-            new_x = max(0, min(SCREEN_WIDTH - WIDTH, new_x))
-            new_y = max(0, min(SCREEN_HEIGHT - HEIGHT - TASKBAR_HEIGHT, new_y))
-            
-        current_win.geometry(f"+{int(new_x)}+{int(new_y)}")
-        
-        # Message Timer
-        if self.timer > 0:
-            self.timer -= 1
-            if self.timer == 0: self.message = ""
+# ---------------- UPDATE ----------------
+def check_update():
+    clear()
+    tk.Label(root, text="Checking for Updates",
+             font=("Segoe UI", 26, "bold"),
+             fg="white", bg="#0f172a").pack(pady=10)
 
-    def update(self, current_win):
-        now = datetime.now().hour
-        self.step += 0.25 
-        
-        if self.mode == "GO_TO_PC":
-            tx, ty = 125, 200 
-            dist_x, dist_y = tx - self.x, ty - self.y
-            self.dx, self.dy = dist_x / 10, dist_y / 15
-            if abs(dist_x) < 5 and abs(dist_y) < 5:
-                self.mode = "AT_MENU"
-                self.dx, self.dy = 0, 0
-                self.say("Connected!")
-        
-        elif now >= 21 or now < 6:
-            self.mode = "SLEEP"
-            self.x, self.y = 80, 300 
-            self.dx, self.dy = 0, 0
-            if self.timer == 0: self.message = "Zzz..."
-        
+    logviewer = log_box(root)
+
+    log(logviewer, "Connecting to github.com...")
+    log(logviewer, "SENDING → repo=dog629/stick")
+    log(logviewer, "SENDING → file=stick-file")
+    log(logviewer, f"SENDING → current_version={state['version']}")
+
+    try:
+        r = requests.get(
+            "https://raw.githubusercontent.com/dog629/stick/main/stick-file",
+            timeout=10
+        )
+        if r.status_code == 200:
+            remote = r.text.strip()
+            log(logviewer, f"SERVER → latest_version={remote}")
+            if remote != state["version"]:
+                messagebox.showinfo("Update Available",
+                                    f"New version {remote} available")
+            else:
+                messagebox.showinfo("Up to Date", "You are on the latest version")
         else:
-            self.mode = "WANDER"
-            if 6 <= now < 11 and not self.has_greeted:
-                self.say("Morning!")
-                self.has_greeted = True
-            elif 12 <= now < 14 and not self.is_eating:
-                self.say("Lunch time!")
-                self.is_eating = True
+            log(logviewer, "SERVER → error fetching update")
+    except Exception as e:
+        log(logviewer, f"NETWORK ERROR → {e}")
 
-        if self.mode == "WANDER":
-            if random.random() < 0.05:
-                self.dx += random.uniform(-1, 1)
-                self.dy += random.uniform(-1, 1)
-            self.dx = max(-4, min(4, self.dx))
-            self.dy = max(-4, min(4, self.dy))
+    tk.Button(root, text="Back",
+              bg="#334155", fg="white",
+              border=0, command=main_menu).pack(pady=10)
 
-        self.x += self.dx
-        self.y += self.dy
+# ---------------- MENUS ----------------
+def main_menu():
+    clear()
+    tk.Label(root, text=f"Welcome, {state['username']}",
+             font=("Segoe UI", 26, "bold"),
+             fg="white", bg="#0f172a").pack(pady=20)
 
-        win_x, win_y = current_win.winfo_x(), current_win.winfo_y()
-        pushed_dx, pushed_dy = 0, 0
-        
-        if self.x <= 40: self.x = 40; pushed_dx = -6; self.dx *= -1 
-        if self.x >= WIDTH - 40: self.x = WIDTH - 40; pushed_dx = 6; self.dx *= -1
-        if self.y <= 60: self.y = 60; pushed_dy = -6; self.dy *= -1
-        if self.y >= HEIGHT - 130: self.y = HEIGHT - 130; pushed_dy = 6; self.dy *= -1
+    for text, cmd in [
+        ("Games", lambda: messagebox.showinfo("Games", "Games coming soon")),
+        ("Settings", settings),
+        ("Power", power),
+        ("Update", check_update)
+    ]:
+        tk.Button(root, text=text,
+                  bg="#1e293b", fg="white",
+                  font=("Segoe UI", 14, "bold"),
+                  width=14, pady=12,
+                  border=0, command=cmd).pack(pady=5)
 
-        new_x, new_y = win_x + pushed_dx, win_y + pushed_dy
-        if SCREEN_LOCK:
-            new_x = max(0, min(SCREEN_WIDTH - WIDTH, new_x))
-            new_y = max(0, min(SCREEN_HEIGHT - HEIGHT - TASKBAR_HEIGHT, new_y))
-            
-        current_win.geometry(f"+{int(new_x)}+{int(new_y)}")
-        
-        if self.timer > 0:
-            self.timer -= 1
-            if self.timer == 0: self.message = ""
+def settings():
+    clear()
+    tk.Label(root, text="Settings",
+             font=("Segoe UI", 26, "bold"),
+             fg="white", bg="#0f172a").pack(pady=20)
 
-    def say(self, text):
-        self.message = text
-        self.timer = 150
+    def reset():
+        if messagebox.askyesno("Reset", "Reset account?"):
+            if os.path.exists(STATE_FILE):
+                os.remove(STATE_FILE)
+            global state
+            state = default_state()
+            signup_screen()
 
-# ---------------------------- #
-# GAME MENU CLASS
-# ---------------------------- #
-class GameMenu:
-    def __init__(self):
-        self.window = tk.Toplevel()
-        self.window.title("Control Panel")
-        self.window.geometry("280x500+450+300")
-        self.window.configure(bg="#1a1a1a")
-        self.window.attributes('-topmost', True)
-        
-        self.status_label = tk.Label(self.window, text="OFFLINE", fg="red", bg="#1a1a1a", font=("Arial", 12, "bold"))
-        self.status_label.pack(pady=10)
+    tk.Button(root, text="Reset Account",
+              bg="#7f1d1d", fg="white",
+              border=0, command=reset).pack(pady=10)
 
-        self.btn_pong = tk.Button(self.window, text="Classic Pong", state="disabled", width=20, command=self.play_pong)
-        self.btn_pong.pack(pady=5)
+    tk.Button(root, text="Back",
+              bg="#334155", fg="white",
+              border=0, command=main_menu).pack()
 
-        self.connect_btn = tk.Button(self.window, text="CONNECT TO PC", width=20, command=self.handle_connect)
-        self.connect_btn.pack(pady=10)
+def power():
+    clear()
+    tk.Label(root, text="Power",
+             font=("Segoe UI", 26, "bold"),
+             fg="white", bg="#0f172a").pack(pady=20)
 
-        self.lock_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(self.window, text="Lock Screen", variable=self.lock_var, command=self.toggle_lock, bg="#1a1a1a", fg="white", selectcolor="#333").pack()
+    tk.Button(root, text="Shutdown",
+              bg="#7f1d1d", fg="white",
+              border=0, command=root.destroy).pack(pady=5)
 
-        self.update_btn = tk.Button(self.window, text=f"v{VERSION} - Up to Date", bg="#111", fg="gray", state="disabled")
-        self.update_btn.pack(side="bottom", pady=10)
+    tk.Button(root, text="Restart",
+              bg="#1e293b", fg="white",
+              border=0, command=lambda: os.execl(
+                  os.sys.executable, os.sys.executable, *os.sys.argv)
+              ).pack(pady=5)
 
-        self.auto_loop()
+    tk.Button(root, text="Back",
+              bg="#334155", fg="white",
+              border=0, command=main_menu).pack()
 
-    def play_pong(self):
-        PongGame(self.window)
+# ---------------- START ----------------
+if not state.get("setup_complete"):
+    signup_screen()
+else:
+    login_screen()
 
-    def toggle_lock(self):
-        global SCREEN_LOCK
-        SCREEN_LOCK = self.lock_var.get()
-
-    def handle_connect(self):
-        if current_world == house:
-            stick.mode = "GO_TO_PC"
-            self.status_label.config(text="CONNECTING...", fg="yellow")
-            self.check_arrival()
-        else: stick.say("Get inside first!")
-
-    def check_arrival(self):
-        if stick.mode == "AT_MENU":
-            self.status_label.config(text="ONLINE", fg="lime")
-            self.btn_pong.config(state="normal")
-            self.connect_btn.config(state="disabled", text="CONNECTED")
-        else: self.window.after(100, self.check_arrival)
-
-    def auto_loop(self):
-        if int(datetime.now().strftime("%S")) % 15 == 0:
-            self.check_for_global_update()
-        self.window.after(1000, self.auto_loop)
-
-    def check_for_global_update(self):
-        try:
-            url = f"{GITHUB_RAW_URL}?nocache={random.randint(1,999)}"
-            resp = requests.get(url, timeout=5)
-            for line in resp.text.split('\n'):
-                if "VERSION =" in line:
-                    rv = float(line.split('=')[1].strip())
-                    if rv > VERSION:
-                        self.update_btn.config(text="INSTALL UPDATE", bg="cyan", fg="black", state="normal", command=lambda: self.apply_update(resp.text))
-                    break
-        except: pass
-
-    def apply_update(self, nc):
-        with open(os.path.abspath(sys.argv[0]), "w", encoding="utf-8") as f:
-            f.write(nc)
-        restart_program()
-
-# ---------------------------- #
-# WORLD SETUP
-# ---------------------------- #
-class World:
-    def __init__(self, title, x, is_house=False):
-        self.window = tk.Toplevel(); self.window.title(title); self.window.geometry(f"{WIDTH}x{HEIGHT}+{x}+200")
-        self.window.configure(bg="black"); self.is_house = is_house
-        self.canvas = tk.Canvas(self.window, width=WIDTH, height=HEIGHT, bg="black", highlightthickness=0); self.canvas.pack()
-        self.entry = tk.Entry(self.window, font=("Arial", 12), bg="#111", fg="white"); self.entry.place(x=10, y=HEIGHT-35, width=WIDTH-20)
-
-    def draw_decorations(self):
-        if self.is_house:
-            self.canvas.create_rectangle(110, 200, 140, 240, fill="#002244") # PC
-
-    def clear(self): self.canvas.delete("all"); self.draw_decorations()
-    def draw_stick(self, s):
-        c = self.canvas; cx, cy = s.x, s.y
-        c.create_oval(cx-15, cy-45, cx+15, cy-15, outline="white", width=3)
-        c.create_line(cx, cy-15, cx, cy+60, fill="white", width=3)
-        arm = math.sin(s.step) * 20
-        c.create_line(cx, cy+10, cx-40, cy+40+arm, fill="white", width=3) 
-        c.create_line(cx, cy+10, cx+40, cy+40-arm, fill="white", width=3)
-        leg = math.sin(s.step) * 25
-        c.create_line(cx, cy+60, cx-25, cy+120-leg, fill="white", width=3) 
-        c.create_line(cx, cy+60, cx+25, cy+120+leg, fill="white", width=3)
-        if s.message:
-            c.create_rectangle(cx-80, cy-110, cx+80, cy-60, fill="white")
-            c.create_text(cx, cy-85, text=s.message, fill="black", font=("Arial", 9, "bold"))
-
-root = tk.Tk(); root.withdraw()
-outside = World("Outside", 100); house = World("House", 800, is_house=True)
-stick = StickFigure(); current_world = outside
-house.entry.place_forget()
-menu = GameMenu()
-
-def handle_chat(event, world):
-    global current_world
-    text = world.entry.get().strip().lower(); world.entry.delete(0, tk.END)
-    if "come in" in text:
-        outside.entry.place_forget(); house.entry.place(x=10, y=HEIGHT-35, width=WIDTH-20)
-        current_world = house
-    elif "come out" in text:
-        house.entry.place_forget(); outside.entry.place(x=10, y=HEIGHT-35, width=WIDTH-20)
-        current_world = outside
-
-outside.entry.bind("<Return>", lambda e: handle_chat(e, outside))
-house.entry.bind("<Return>", lambda e: handle_chat(e, house))
-
-def loop():
-    stick.update(current_world.window)
-    outside.clear(); house.clear()
-    current_world.draw_stick(stick)
-    root.after(30, loop)
-
-loop(); root.mainloop()
+root.mainloop()
