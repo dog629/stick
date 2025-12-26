@@ -1,33 +1,40 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-import json, os, random, time, requests
+import json, os, random, time, requests, sys
 
 STATE_FILE = "state.json"
+BG = "#0f172a"
+BTN = "#1e293b"
+TXT = "white"
 
-# ---------------- LOAD / SAVE STATE ----------------
-def default_state():
-    return {
-        "setup_complete": False,
-        "username": None,
-        "password": None,
-        "version": "0.0.1"
-    }
-
+# ---------------- LOAD STATE ----------------
 if os.path.exists(STATE_FILE):
     with open(STATE_FILE, "r") as f:
         state = json.load(f)
 else:
-    state = default_state()
+    state = {}
 
-def save_state():
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+# ---------------- MIGRATION / DEFAULTS ----------------
+if "accounts" not in state:
+    state["accounts"] = {
+        "AlmondBadger403": {"password": "Bears123", "games": []},
+        "callum": {"password": "dogdolla123", "games": []}
+    }
+if "setup_complete" not in state:
+    state["setup_complete"] = False
+if "current_user" not in state:
+    state["current_user"] = None
+if "version" not in state:
+    state["version"] = "0.0.1"
+
+with open(STATE_FILE, "w") as f:
+    json.dump(state, f, indent=2)
 
 # ---------------- ROOT ----------------
 root = tk.Tk()
-root.title("Relex")
+root.title("Relex Console")
 root.geometry("900x520")
-root.configure(bg="#0f172a")
+root.configure(bg=BG)
 root.resizable(False, False)
 
 # ---------------- HELPERS ----------------
@@ -38,7 +45,7 @@ def clear():
 def log_box(parent):
     box = tk.Text(parent, height=10, bg="#020617", fg="#38bdf8")
     box.pack(fill="x", padx=20, pady=10)
-    box.insert("end", "[Relex Network Monitor Initialized]\n")
+    box.insert("end", "[Relex Network Monitor]\n")
     box.configure(state="disabled")
     return box
 
@@ -48,51 +55,50 @@ def log(box, text):
     box.see("end")
     box.configure(state="disabled")
 
+def save_state():
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+
 # ---------------- SIGN UP ----------------
-def signup_screen():
+def signup():
     clear()
-    frame = tk.Frame(root, bg="#0f172a")
+    frame = tk.Frame(root, bg=BG)
     frame.pack(expand=True, fill="both")
 
-    tk.Label(frame, text="Create Relex Account",
+    tk.Label(frame, text="Create Account",
              font=("Segoe UI", 26, "bold"),
-             fg="white", bg="#0f172a").pack(pady=10)
+             fg=TXT, bg=BG).pack(pady=10)
 
-    tk.Label(frame, text="Username", fg="white", bg="#0f172a").pack()
     user = tk.Entry(frame)
-    user.pack()
-
-    tk.Label(frame, text="Password", fg="white", bg="#0f172a").pack()
     pwd = tk.Entry(frame, show="*")
+
+    tk.Label(frame, text="Username", fg=TXT, bg=BG).pack()
+    user.pack()
+    tk.Label(frame, text="Password", fg=TXT, bg=BG).pack()
     pwd.pack()
 
-    logviewer = log_box(frame)
+    logs = log_box(frame)
 
-    def start_signup():
-        if not user.get() or not pwd.get():
+    def begin():
+        u, p = user.get(), pwd.get()
+        if not u or not p:
             messagebox.showerror("Error", "All fields required")
             return
+        if u in state["accounts"]:
+            messagebox.showerror("Error", "Account already exists")
+            return
 
-        state["username"] = user.get()
-        state["password"] = pwd.get()
-
-        log(logviewer, "Connecting to relex.auth.server...")
-        log(logviewer, f"SENDING → username={user.get()}")
-        log(logviewer, "SENDING → password=[ENCRYPTED]")
-        log(logviewer, "SENDING → device=relex-console")
-        log(logviewer, "SENDING → protocol=DNS-SIGNAL-IX")
-
-        tk.Label(frame,
-            text="Account creation may take up to 24 hours due to\nsignal/DNS conditions Relex cannot control.\nShowing most accurate progress available.",
-            fg="#94a3b8", bg="#0f172a").pack(pady=5)
+        log(logs, "CONNECT → auth.relex.net")
+        log(logs, f"SEND → username={u}")
+        log(logs, "SEND → password=[ENCRYPTED]")
+        log(logs, "SEND → protocol=DNS-SIGNAL")
 
         bar = ttk.Progressbar(frame, length=500)
         bar.pack(pady=10)
-
-        percent = tk.Label(frame, text="0%", fg="white", bg="#0f172a")
+        percent = tk.Label(frame, text="0%", fg=TXT, bg=BG)
         percent.pack()
 
-        total = random.randint(300, 3600)  # seconds (5min–1hr)
+        total = random.randint(300, 3600)
         step = total // 100
         progress = 0
 
@@ -102,159 +108,299 @@ def signup_screen():
                 progress += 1
                 bar["value"] = progress
                 percent.config(text=f"{progress}%")
-                log(logviewer, f"SERVER → progress update {progress}%")
+                log(logs, f"SERVER → progress {progress}%")
                 root.after(step * 10, update)
             else:
-                log(logviewer, "SERVER → Account verified")
-                log(logviewer, "SERVER → Setup complete")
+                state["accounts"][u] = {"password": p, "games": []}
                 state["setup_complete"] = True
                 save_state()
-                messagebox.showinfo("Success", "Account created!")
-                login_screen()
+                messagebox.showinfo("Success", "Account created")
+                login()
 
         update()
 
-    tk.Button(frame, text="Sign Up",
-              bg="#2563eb", fg="white",
-              font=("Segoe UI", 14, "bold"),
-              border=0, command=start_signup).pack(pady=10)
-
-    tk.Button(frame, text="Back to Login",
-              bg="#334155", fg="white",
-              border=0, command=login_screen).pack()
+    tk.Button(frame, text="Sign Up", bg="#2563eb", fg="white",
+              font=("Segoe UI", 14, "bold"), border=0, command=begin).pack(pady=10)
+    tk.Button(frame, text="Back", bg="#334155", fg="white",
+              border=0, command=login).pack()
 
 # ---------------- LOGIN ----------------
-def login_screen():
+def login():
     clear()
     tk.Label(root, text="Relex Login",
              font=("Segoe UI", 26, "bold"),
-             fg="white", bg="#0f172a").pack(pady=20)
+             fg=TXT, bg=BG).pack(pady=20)
 
-    tk.Label(root, text="Username", fg="white", bg="#0f172a").pack()
     user = tk.Entry(root)
-    user.pack()
-
-    tk.Label(root, text="Password", fg="white", bg="#0f172a").pack()
     pwd = tk.Entry(root, show="*")
+
+    tk.Label(root, text="Username", fg=TXT, bg=BG).pack()
+    user.pack()
+    tk.Label(root, text="Password", fg=TXT, bg=BG).pack()
     pwd.pack()
 
-    def login():
-        if user.get() == state.get("username") and pwd.get() == state.get("password"):
+    def do_login():
+        u, p = user.get(), pwd.get()
+        if u in state["accounts"] and state["accounts"][u]["password"] == p:
+            state["current_user"] = u
+            save_state()
             main_menu()
         else:
             messagebox.showerror("Login Failed", "Invalid credentials")
 
-    tk.Button(root, text="Login",
-              bg="#2563eb", fg="white",
-              font=("Segoe UI", 14, "bold"),
-              border=0, command=login).pack(pady=10)
+    tk.Button(root, text="Login", bg="#2563eb", fg="white",
+              font=("Segoe UI", 14, "bold"), border=0, command=do_login).pack(pady=10)
+    tk.Button(root, text="Sign Up", bg="#10b981", fg="white",
+              font=("Segoe UI", 14, "bold"), border=0, command=signup).pack()
 
-    tk.Button(root, text="Sign Up",
-              bg="#10b981", fg="white",
-              font=("Segoe UI", 14, "bold"),
-              border=0, command=signup_screen).pack()
-
-# ---------------- UPDATE ----------------
-def check_update():
-    clear()
-    tk.Label(root, text="Checking for Updates",
-             font=("Segoe UI", 26, "bold"),
-             fg="white", bg="#0f172a").pack(pady=10)
-
-    logviewer = log_box(root)
-
-    log(logviewer, "Connecting to github.com...")
-    log(logviewer, "SENDING → repo=dog629/stick")
-    log(logviewer, "SENDING → file=stick-file")
-    log(logviewer, f"SENDING → current_version={state['version']}")
-
-    try:
-        r = requests.get(
-            "https://raw.githubusercontent.com/dog629/stick/main/stick-file",
-            timeout=10
-        )
-        if r.status_code == 200:
-            remote = r.text.strip()
-            log(logviewer, f"SERVER → latest_version={remote}")
-            if remote != state["version"]:
-                messagebox.showinfo("Update Available",
-                                    f"New version {remote} available")
-            else:
-                messagebox.showinfo("Up to Date", "You are on the latest version")
-        else:
-            log(logviewer, "SERVER → error fetching update")
-    except Exception as e:
-        log(logviewer, f"NETWORK ERROR → {e}")
-
-    tk.Button(root, text="Back",
-              bg="#334155", fg="white",
-              border=0, command=main_menu).pack(pady=10)
-
-# ---------------- MENUS ----------------
+# ---------------- MAIN MENU ----------------
 def main_menu():
     clear()
-    tk.Label(root, text=f"Welcome, {state['username']}",
+    tk.Label(root, text=f"Welcome, {state['current_user']}",
              font=("Segoe UI", 26, "bold"),
-             fg="white", bg="#0f172a").pack(pady=20)
+             fg=TXT, bg=BG).pack(pady=20)
 
     for text, cmd in [
-        ("Games", lambda: messagebox.showinfo("Games", "Games coming soon")),
+        ("Games", games),
+        ("Game Editor", game_editor),
+        ("Friends", friends),
+        ("Store", store),
+        ("Update", update_check),
         ("Settings", settings),
-        ("Power", power),
-        ("Update", check_update)
+        ("Power", power)
     ]:
-        tk.Button(root, text=text,
-                  bg="#1e293b", fg="white",
+        tk.Button(root, text=text, bg=BTN, fg=TXT,
                   font=("Segoe UI", 14, "bold"),
-                  width=14, pady=12,
-                  border=0, command=cmd).pack(pady=5)
+                  width=16, pady=8, border=0, command=cmd).pack(pady=4)
 
+# ---------------- GAMES ----------------
+def games():
+    clear()
+    tk.Label(root, text="Games", font=("Segoe UI", 26, "bold"),
+             fg=TXT, bg=BG).pack(pady=20)
+
+    user_games = state["accounts"][state["current_user"]]["games"]
+    for g in user_games:
+        tk.Button(root, text=g, bg=BTN, fg=TXT, font=("Segoe UI", 14), border=0,
+                  command=lambda g=g: messagebox.showinfo("Game Launch", f"Launching {g}")).pack(pady=5)
+
+    # Add Astro Bot
+    tk.Button(root, text="astros", bg=BTN, fg=TXT, font=("Segoe UI", 14), border=0,
+              command=astro_bot_game).pack(pady=5)
+
+    tk.Button(root, text="Back", bg="#334155", fg="white", border=0, command=main_menu).pack(pady=10)
+
+# ---------------- GAME EDITOR ----------------
+def game_editor():
+    clear()
+    tk.Label(root, text="Game Editor", font=("Segoe UI", 26, "bold"),
+             fg=TXT, bg=BG).pack(pady=20)
+
+    entry = tk.Entry(root)
+    entry.pack()
+
+    def add_game():
+        name = entry.get()
+        if name:
+            state["accounts"][state["current_user"]]["games"].append(name)
+            save_state()
+            messagebox.showinfo("Saved", "Game added")
+
+    tk.Button(root, text="Create Game", bg="#2563eb", fg="white",
+              border=0, command=add_game).pack(pady=10)
+    tk.Button(root, text="Back", bg="#334155", fg="white",
+              border=0, command=main_menu).pack()
+
+# ---------------- FRIENDS ----------------
+def friends():
+    clear()
+    tk.Label(root, text="Friends Online",
+             font=("Segoe UI", 26, "bold"),
+             fg=TXT, bg=BG).pack(pady=20)
+
+    for f in ["PixelFox", "NeoBear", "SkyByte"]:
+        tk.Label(root, text=f"{f} ● Online", fg="#22c55e", bg=BG).pack()
+
+    tk.Button(root, text="Back", bg="#334155", fg="white",
+              border=0, command=main_menu).pack(pady=10)
+
+# ---------------- STORE ----------------
+def store():
+    clear()
+    tk.Label(root, text="Relex Store",
+             font=("Segoe UI", 26, "bold"),
+             fg=TXT, bg=BG).pack(pady=20)
+
+    tk.Label(root, text="Coming Soon", fg="#94a3b8", bg=BG).pack()
+    tk.Button(root, text="Back", bg="#334155", fg="white",
+              border=0, command=main_menu).pack(pady=10)
+
+# ---------------- UPDATE ----------------
+def update_check():
+    clear()
+    tk.Label(root, text="Checking Updates",
+             font=("Segoe UI", 26, "bold"),
+             fg=TXT, bg=BG).pack(pady=10)
+
+    logs = tk.Text(root, height=10, bg="#020617", fg="#38bdf8")
+    logs.pack(fill="x", padx=20, pady=10)
+    logs.insert("end", "[Relex Network Monitor]\n")
+    logs.configure(state="disabled")
+
+    def log_text(text):
+        logs.configure(state="normal")
+        logs.insert("end", text + "\n")
+        logs.see("end")
+        logs.configure(state="disabled")
+
+    log_text("CONNECT → github.com")
+    log_text(f"SEND → current version={state['version']}")
+
+    try:
+        r = requests.get("https://raw.githubusercontent.com/dog629/stick/main/stick-file", timeout=10)
+        if r.status_code == 200:
+            remote_version = r.text.strip()
+            log_text(f"SERVER → latest version={remote_version}")
+
+            if remote_version != state['version']:
+                log_text("UPDATE → New version available!")
+                def do_update():
+                    # Placeholder: simulate update
+                    messagebox.showinfo("Update", "Updating Relex... (simulated)")
+                    state['version'] = remote_version
+                    save_state()
+                    main_menu()
+                tk.Button(root, text="Update Now", bg="#2563eb", fg="white",
+                          font=("Segoe UI", 14, "bold"), border=0,
+                          command=do_update).pack(pady=10)
+            else:
+                log_text("UPDATE → You are on the latest version.")
+        else:
+            log_text("SERVER → error checking version")
+    except Exception as e:
+        log_text(f"ERROR → {e}")
+
+    tk.Button(root, text="Back", bg="#334155", fg="white",
+              border=0, command=main_menu).pack(pady=10)
+
+
+# ---------------- SETTINGS ----------------
 def settings():
     clear()
     tk.Label(root, text="Settings",
              font=("Segoe UI", 26, "bold"),
-             fg="white", bg="#0f172a").pack(pady=20)
+             fg=TXT, bg=BG).pack(pady=20)
 
     def reset():
-        if messagebox.askyesno("Reset", "Reset account?"):
+        if messagebox.askyesno("Reset", "Reset all data?"):
             if os.path.exists(STATE_FILE):
                 os.remove(STATE_FILE)
             global state
-            state = default_state()
-            signup_screen()
+            state = {
+                "setup_complete": False,
+                "current_user": None,
+                "accounts": {
+                    "AlmondBadger403": {"password": "Bears123", "games": []},
+                    "callum": {"password": "dogdolla123", "games": []}
+                },
+                "version": "0.0.1"
+            }
+            save_state()
+            signup()
 
-    tk.Button(root, text="Reset Account",
-              bg="#7f1d1d", fg="white",
+    tk.Button(root, text="Reset Account", bg="#7f1d1d", fg="white",
               border=0, command=reset).pack(pady=10)
-
-    tk.Button(root, text="Back",
-              bg="#334155", fg="white",
+    tk.Button(root, text="Back", bg="#334155", fg="white",
               border=0, command=main_menu).pack()
 
+# ---------------- POWER ----------------
 def power():
     clear()
     tk.Label(root, text="Power",
              font=("Segoe UI", 26, "bold"),
-             fg="white", bg="#0f172a").pack(pady=20)
+             fg=TXT, bg=BG).pack(pady=20)
 
-    tk.Button(root, text="Shutdown",
-              bg="#7f1d1d", fg="white",
+    tk.Button(root, text="Shutdown", bg="#7f1d1d", fg="white",
               border=0, command=root.destroy).pack(pady=5)
+    tk.Button(root, text="Restart", bg=BTN, fg="white",
+              border=0, command=lambda: os.execl(sys.executable, sys.executable, *sys.argv)).pack(pady=5)
+    tk.Button(root, text="Back", bg="#334155", fg="white",
+              border=0, command=main_menu).pack(pady=10)
 
-    tk.Button(root, text="Restart",
-              bg="#1e293b", fg="white",
-              border=0, command=lambda: os.execl(
-                  os.sys.executable, os.sys.executable, *os.sys.argv)
-              ).pack(pady=5)
+# ---------------- ASTRO BOT GAME ----------------
+def astro_bot_game():
+    clear()
+    root.title("Relex - Astros Mini Game")
+    
+    canvas = tk.Canvas(root, width=900, height=500, bg=BG)
+    canvas.pack()
 
-    tk.Button(root, text="Back",
-              bg="#334155", fg="white",
-              border=0, command=main_menu).pack()
+    player = canvas.create_rectangle(50, 400, 80, 430, fill="#2563eb")
+    obstacles = []
+    score = tk.IntVar(value=0)
+    canvas_score = canvas.create_text(850, 30, text="Score: 0", fill="white", font=("Segoe UI", 16, "bold"))
+
+    player_speed = 10
+    jump_speed = 15
+    gravity = 1
+    is_jumping = False
+    jump_velocity = 0
+
+    def move_left(event):
+        canvas.move(player, -player_speed, 0)
+    def move_right(event):
+        canvas.move(player, player_speed, 0)
+    def jump(event):
+        nonlocal is_jumping, jump_velocity
+        if not is_jumping:
+            is_jumping = True
+            jump_velocity = -jump_speed
+
+    root.bind("<Left>", move_left)
+    root.bind("<Right>", move_right)
+    root.bind("<space>", jump)
+
+    def game_loop():
+        nonlocal is_jumping, jump_velocity
+        if is_jumping:
+            canvas.move(player, 0, jump_velocity)
+            jump_velocity += gravity
+            p_coords = canvas.coords(player)
+            if p_coords[3] >= 430:
+                canvas.coords(player, p_coords[0], 400, p_coords[2], 430)
+                is_jumping = False
+
+        for obs in obstacles:
+            canvas.move(obs, -5, 0)
+
+        for obs in obstacles[:]:
+            if canvas.coords(obs)[2] < 0:
+                canvas.delete(obs)
+                obstacles.remove(obs)
+                score.set(score.get() + 1)
+                canvas.itemconfig(canvas_score, text=f"Score: {score.get()}")
+
+        p_coords = canvas.coords(player)
+        for obs in obstacles:
+            o_coords = canvas.coords(obs)
+            if p_coords[2] > o_coords[0] and p_coords[0] < o_coords[2] and p_coords[3] > o_coords[1]:
+                messagebox.showinfo("Game Over", f"Game Over! Score: {score.get()}")
+                main_menu()
+                return
+
+        if random.randint(1, 50) == 1:
+            obs_height = random.randint(20, 50)
+            obs = canvas.create_rectangle(900, 430-obs_height, 930, 430, fill="#ef4444")
+            obstacles.append(obs)
+
+        root.after(20, game_loop)
+
+    game_loop()
 
 # ---------------- START ----------------
-if not state.get("setup_complete"):
-    signup_screen()
+if not state["setup_complete"]:
+    signup()
 else:
-    login_screen()
+    login()
 
 root.mainloop()
