@@ -168,7 +168,6 @@ def main_menu():
     for text, cmd in [
         ("Games", games),
         ("Game Editor", game_editor),
-        ("Friends", friends),
         ("Store", store),
         ("Update", update_check),
         ("Settings", settings),
@@ -215,19 +214,6 @@ def game_editor():
     tk.Button(root, text="Back", bg="#334155", fg="white",
               border=0, command=main_menu).pack()
 
-# ---------------- FRIENDS ----------------
-def friends():
-    clear()
-    tk.Label(root, text="Friends Online",
-             font=("Segoe UI", 26, "bold"),
-             fg=TXT, bg=BG).pack(pady=20)
-
-    for f in ["PixelFox", "NeoBear", "SkyByte"]:
-        tk.Label(root, text=f"{f} ● Online", fg="#22c55e", bg=BG).pack()
-
-    tk.Button(root, text="Back", bg="#334155", fg="white",
-              border=0, command=main_menu).pack(pady=10)
-
 # ---------------- STORE ----------------
 def store():
     clear()
@@ -262,24 +248,33 @@ def update_check():
 
     try:
         r = requests.get("https://raw.githubusercontent.com/dog629/stick/main/stick-file", timeout=10)
-        if r.status_code == 200:
-            remote_version = r.text.strip()
-            log_text(f"SERVER → latest version={remote_version}")
+        r.raise_for_status()
+        remote_version = r.text.strip()
+        log_text(f"SERVER → latest version={remote_version}")
 
-            if remote_version != state['version']:
-                log_text("UPDATE → New version available!")
-                def do_update():
-                    messagebox.showinfo("Update", "Updating Relex... (simulated)")
+        if remote_version != state['version']:
+            log_text("UPDATE → New version available!")
+
+            def do_update():
+                try:
+                    log_text("Downloading latest version...")
+                    r_code = requests.get("https://raw.githubusercontent.com/dog629/stick/main/main.py", timeout=10)
+                    r_code.raise_for_status()
+                    with open("main.py", "w", encoding="utf-8") as f:
+                        f.write(r_code.text)
+                    log_text("Update downloaded and applied.")
                     state['version'] = remote_version
                     save_state()
-                    main_menu()
-                tk.Button(root, text="Update Now", bg="#2563eb", fg="white",
-                          font=("Segoe UI", 14, "bold"), border=0,
-                          command=do_update).pack(pady=10)
-            else:
-                log_text("UPDATE → You are on the latest version.")
+                    messagebox.showinfo("Update", "Update applied! Restarting Relex...")
+                    os.execl(sys.executable, sys.executable, *sys.argv)
+                except Exception as e:
+                    log_text(f"ERROR → {e}")
+
+            tk.Button(root, text="Update Now", bg="#2563eb", fg="white",
+                      font=("Segoe UI", 14, "bold"), border=0,
+                      command=do_update).pack(pady=10)
         else:
-            log_text("SERVER → error checking version")
+            log_text("UPDATE → You are on the latest version.")
     except Exception as e:
         log_text(f"ERROR → {e}")
 
