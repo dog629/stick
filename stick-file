@@ -1,27 +1,33 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
-import json, os, random, time, sys, subprocess
+from tkinter import ttk, messagebox, filedialog
+import json, os, random, time, sys, subprocess, shutil, webbrowser, platform
 
-import subprocess
-import sys
-
+# ---------------- ENSURE OPENCV IS INSTALLED ----------------
 try:
-    import requests
+    import cv2
 except ImportError:
-    print("Requests library not found. Installing now...")
-    # Use sys.executable to ensure installation to the current environment
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
-    import requests
+    print("OpenCV not found. Installing now...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "opencv-python"])
+    import cv2
 
-# Example usage after successful import
-response = requests.get('https://www.google.com')
-print(f"Status Code: {response.status_code}")
+# ---------------- ENSURE PILLOW IS INSTALLED ----------------
+try:
+    from PIL import Image, ImageTk
+except ImportError:
+    print("Pillow not found. Installing now...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "Pillow"])
+    from PIL import Image, ImageTk
 
-
+# ---------------- GLOBALS ----------------
 STATE_FILE = "state.json"
 BG = "#0f172a"
 BTN = "#1e293b"
 TXT = "white"
+RELEXTUBE_DIR = "RelexTube"
+
+# ---------------- ENSURE RelexTube FOLDER ----------------
+if not os.path.exists(RELEXTUBE_DIR):
+    os.makedirs(RELEXTUBE_DIR)
 
 # ---------------- LOAD STATE ----------------
 if os.path.exists(STATE_FILE):
@@ -30,26 +36,30 @@ if os.path.exists(STATE_FILE):
 else:
     state = {}
 
-# ---------------- DEFAULTS ----------------
-if "accounts" not in state:
-    state["accounts"] = {
-        "AlmondBadger403": {"password": "Bears123", "games": []},
-        "callum": {"password": "dogdolla123", "games": []}
-    }
-if "setup_complete" not in state:
-    state["setup_complete"] = False
-if "current_user" not in state:
-    state["current_user"] = None
-if "version" not in state:
-    state["version"] = "0.0.1"
+# ---------------- SAVE STATE FUNCTION ----------------
+def save_state():
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
 
-with open(STATE_FILE, "w") as f:
-    json.dump(state, f, indent=2)
+# ---------------- CLEAR ALL RelexTube VIDEOS ----------------
+state["relextube"] = []
+save_state()
+
+# ---------------- DEFAULTS ----------------
+state.setdefault("accounts", {
+    "AlmondBadger403": {"password": "Bears123", "games": []},
+    "callum": {"password": "dogdolla123", "games": []}
+})
+state.setdefault("setup_complete", False)
+state.setdefault("current_user", None)
+state.setdefault("version", "0.0.1")
+state.setdefault("relextube", [])  # Global RelexTube metadata
+save_state()
 
 # ---------------- ROOT ----------------
 root = tk.Tk()
 root.title("Relex Console")
-root.attributes("-fullscreen", True)  # FULL SCREEN
+root.attributes("-fullscreen", True)
 root.configure(bg=BG)
 root.resizable(True, True)
 
@@ -58,359 +68,211 @@ def clear():
     for w in root.winfo_children():
         w.destroy()
 
-def save_state():
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+# ---------------- FULLSCREEN VIDEO PLAYER ----------------
+def play_video_fullscreen(video_path):
+    clear()
+    root.attributes("-fullscreen", True)
+    canvas = tk.Canvas(root, width=root.winfo_screenwidth(), height=root.winfo_screenheight(), bg="black")
+    canvas.pack(fill="both", expand=True)
+    cap = cv2.VideoCapture(video_path)
 
-# ---------------- LOGIN ----------------
+    def on_esc(event):
+        cap.release()
+        main_menu()  # Return to main menu
+
+    root.bind("<Escape>", on_esc)
+
+    def show_frame():
+        ret, frame = cap.read()
+        if ret:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img = Image.fromarray(frame)
+            img = img.resize((root.winfo_screenwidth(), root.winfo_screenheight()))
+            imgtk = ImageTk.PhotoImage(image=img)
+            canvas.create_image(0, 0, anchor="nw", image=imgtk)
+            canvas.imgtk = imgtk
+            root.after(20, show_frame)
+        else:
+            cap.release()
+            main_menu()
+
+    show_frame()
+
+# ---------------- YOUTUBE ----------------
+def youtube():
+    webbrowser.open("https://www.youtube.com")
+
+# ---------------- RELEXTUBE ----------------
+def relextube():
+    clear()
+    tk.Label(root, text="RelexTube (if playing vid, press esc to stop watching)",
+             font=("Segoe UI", 26, "bold"),
+             fg=TXT, bg=BG).pack(pady=10)
+
+    frame = tk.Frame(root, bg=BG)
+    frame.pack(fill="both", expand=True)
+
+    canvas_frame = tk.Canvas(frame, bg=BG, highlightthickness=0)
+    scroll = tk.Scrollbar(frame, command=canvas_frame.yview)
+    inner = tk.Frame(canvas_frame, bg=BG)
+    inner.bind("<Configure>", lambda e: canvas_frame.configure(scrollregion=canvas_frame.bbox("all")))
+    canvas_frame.create_window((0, 0), window=inner, anchor="nw")
+    canvas_frame.configure(yscrollcommand=scroll.set)
+    canvas_frame.pack(side="left", fill="both", expand=True)
+    scroll.pack(side="right", fill="y")
+
+    if not state["relextube"]:
+        tk.Label(inner, text="No videos yet.", fg="#94a3b8", bg=BG).pack(pady=20)
+
+    for v in state["relextube"]:
+        box = tk.Frame(inner, bg=BTN, pady=8)
+        box.pack(fill="x", padx=20, pady=6)
+
+        # Thumbnail
+        thumb_path = os.path.join(RELEXTUBE_DIR, v.get("thumbnail",""))
+        if os.path.exists(thumb_path):
+            try:
+                thumb_img = tk.PhotoImage(file=thumb_path)
+                thumb_label = tk.Label(box, image=thumb_img, bg=BTN)
+                thumb_label.image = thumb_img
+                thumb_label.pack(side="left", padx=10)
+            except:
+                pass
+
+        # Info
+        info_frame = tk.Frame(box, bg=BTN)
+        info_frame.pack(side="left", fill="x", expand=True)
+        tk.Label(info_frame, text=v["title"], fg="white", bg=BTN, font=("Segoe UI", 14, "bold")).pack(anchor="w")
+        tk.Label(info_frame, text=f"Posted by {v['user']}", fg="#94a3b8", bg=BTN).pack(anchor="w")
+
+        # Watch button (fullscreen)
+        video_path = os.path.join(RELEXTUBE_DIR, v["video"])
+        tk.Button(box, text="Watch", bg="#2563eb", fg="white", border=0,
+                  command=lambda vp=video_path: play_video_fullscreen(vp)).pack(side="right", padx=10)
+
+    tk.Button(root, text="Post Video", bg="#10b981", fg="white",
+              font=("Segoe UI", 14, "bold"), border=0, command=post_video).pack(pady=10)
+    tk.Button(root, text="Back", bg="#334155", fg="white", border=0, command=main_menu).pack(pady=10)
+
+def post_video():
+    clear()
+    tk.Label(root, text="Post to RelexTube", font=("Segoe UI", 26, "bold"), fg=TXT, bg=BG).pack(pady=20)
+
+    tk.Label(root, text="Video Title", fg=TXT, bg=BG).pack()
+    title_entry = tk.Entry(root, width=40)
+    title_entry.pack(pady=5)
+
+    video_path_var = tk.StringVar()
+    thumb_path_var = tk.StringVar()
+
+    def choose_video():
+        path = filedialog.askopenfilename(filetypes=[("MP4 Videos","*.mp4")])
+        if path: video_path_var.set(path)
+
+    def choose_thumbnail():
+        path = filedialog.askopenfilename(filetypes=[("Images","*.png *.jpg *.jpeg")])
+        if path: thumb_path_var.set(path)
+
+    tk.Button(root, text="Select Video", bg=BTN, fg="white", command=choose_video).pack(pady=5)
+    tk.Label(root, textvariable=video_path_var, fg=TXT, bg=BG).pack()
+    tk.Button(root, text="Select Thumbnail", bg=BTN, fg="white", command=choose_thumbnail).pack(pady=5)
+    tk.Label(root, textvariable=thumb_path_var, fg=TXT, bg=BG).pack()
+
+    def submit():
+        t = title_entry.get().strip()
+        v_path = video_path_var.get().strip()
+        th_path = thumb_path_var.get().strip()
+        if not t or not v_path:
+            messagebox.showerror("Error","Title and Video required")
+            return
+
+        vid_filename = f"{int(time.time())}_{os.path.basename(v_path)}"
+        shutil.copy(v_path, os.path.join(RELEXTUBE_DIR, vid_filename))
+        thumb_filename = ""
+        if th_path:
+            thumb_filename = f"{int(time.time())}_{os.path.basename(th_path)}"
+            shutil.copy(th_path, os.path.join(RELEXTUBE_DIR, thumb_filename))
+
+        state["relextube"].insert(0,{
+            "title": t,
+            "video": vid_filename,
+            "thumbnail": thumb_filename,
+            "user": state["current_user"]
+        })
+        save_state()
+        relextube()
+
+    tk.Button(root, text="Post", bg="#2563eb", fg="white", font=("Segoe UI", 14, "bold"), border=0, command=submit).pack(pady=10)
+    tk.Button(root, text="Back", bg="#334155", fg="white", border=0, command=relextube).pack()
+
+# ---------------- LOGIN / SIGNUP / MAIN MENU ----------------
 def login():
     clear()
-    tk.Label(root, text="Relex Login",
-             font=("Segoe UI", 26, "bold"),
-             fg=TXT, bg=BG).pack(pady=20)
-
+    tk.Label(root, text="Relex Login", font=("Segoe UI", 26, "bold"), fg=TXT, bg=BG).pack(pady=20)
     tk.Label(root, text="Username", fg=TXT, bg=BG).pack()
     user = tk.Entry(root)
     user.pack()
-
     tk.Label(root, text="Password", fg=TXT, bg=BG).pack()
     pwd = tk.Entry(root, show="*", font=("Segoe UI", 14))
     pwd.pack()
 
     def do_login():
         u, p = user.get().strip(), pwd.get().strip()
-        if u in state["accounts"] and state["accounts"][u]["password"] == p:
-            state["current_user"] = u
+        if u in state["accounts"] and state["accounts"][u]["password"]==p:
+            state["current_user"]=u
             save_state()
             main_menu()
         else:
             messagebox.showerror("Login Failed", "Invalid credentials")
 
-    tk.Button(root, text="Login", bg="#2563eb", fg="white",
-              font=("Segoe UI", 14, "bold"), border=0, command=do_login).pack(pady=10)
-    tk.Button(root, text="Sign Up", bg="#10b981", fg="white",
-              font=("Segoe UI", 14, "bold"), border=0, command=signup).pack()
+    tk.Button(root, text="Login", bg="#2563eb", fg="white", font=("Segoe UI", 14, "bold"), border=0, command=do_login).pack(pady=10)
+    tk.Button(root, text="Sign Up", bg="#10b981", fg="white", font=("Segoe UI", 14, "bold"), border=0, command=lambda: signup()).pack()
 
-# ---------------- SIGN UP ----------------
 def signup():
     clear()
     frame = tk.Frame(root, bg=BG)
     frame.pack(expand=True, fill="both")
-
-    tk.Label(frame, text="Create Account",
-             font=("Segoe UI", 26, "bold"),
-             fg=TXT, bg=BG).pack(pady=10)
-
+    tk.Label(frame, text="Create Account", font=("Segoe UI", 26, "bold"), fg=TXT, bg=BG).pack(pady=10)
     tk.Label(frame, text="Username", fg=TXT, bg=BG).pack()
     user = tk.Entry(frame, font=("Segoe UI", 14))
     user.pack(pady=5)
-
     tk.Label(frame, text="Password", fg=TXT, bg=BG).pack()
     pwd = tk.Entry(frame, show="*", font=("Segoe UI", 14))
     pwd.pack(pady=5)
 
-    tk.Label(frame, text="⚠️ Account creation may take up to 24 hours\n"
-                         "due to DNS transfer. Relex cannot control this.\n"
-                         "We will show the most accurate progress possible.",
-             fg="#facc15", bg=BG, font=("Segoe UI", 12)).pack(pady=10)
-
-    logs = tk.Text(frame, height=10, bg="#020617", fg="#38bdf8", font=("Consolas", 10))
-    logs.pack(fill="x", padx=20, pady=10)
-    logs.insert("end", "[Relex Network Monitor]\n")
-    logs.configure(state="disabled")
-
-    def log(text):
-        logs.configure(state="normal")
-        logs.insert("end", text + "\n")
-        logs.see("end")
-        logs.configure(state="disabled")
-
     def begin():
-        u, p = user.get().strip(), pwd.get().strip()
-        if not u or not p:
-            messagebox.showerror("Error", "All fields are required.")
+        u,p=user.get().strip(),pwd.get().strip()
+        if not u or not p or u in state["accounts"]:
+            messagebox.showerror("Error","Invalid details")
             return
-        if u in state["accounts"]:
-            messagebox.showerror("Error", "Username already exists.")
-            return
+        state["accounts"][u]={"password":p,"games":[]}
+        state["setup_complete"]=True
+        state["current_user"]=u
+        save_state()
+        main_menu()
 
-        log("CONNECT → auth.relex.net")
-        log(f"SEND → username={u}")
-        log("SEND → password=[ENCRYPTED]")
-        log("SEND → protocol=DNS-SIGNAL")
+    tk.Button(frame,text="Sign Up", bg="#2563eb", fg="white", font=("Segoe UI",14,"bold"), border=0, command=begin).pack(pady=10)
+    tk.Button(frame,text="Back", bg="#334155", fg="white", border=0, command=login).pack()
 
-        transfer_label = tk.Label(frame, text="Account Creation Progress", fg=TXT, bg=BG)
-        transfer_label.pack()
-        progress_bar = ttk.Progressbar(frame, length=600)
-        progress_bar.pack(pady=5)
-        percent_label = tk.Label(frame, text="0%", fg=TXT, bg=BG, font=("Segoe UI", 14))
-        percent_label.pack()
-
-        total_seconds = random.randint(5*60, 60*60)
-        steps = 100
-        step_time = total_seconds / steps
-        progress = 0
-
-        def update_progress():
-            nonlocal progress
-            if progress < 100:
-                progress += 1
-                progress_bar["value"] = progress
-                percent_label.config(text=f"{progress}%")
-                log(f"SERVER → progress {progress}%")
-                root.after(int(step_time*1000), update_progress)
-            else:
-                state["accounts"][u] = {"password": p, "games": []}
-                state["setup_complete"] = True
-                state["current_user"] = u
-                save_state()
-                messagebox.showinfo("Success", f"Account {u} created!")
-                main_menu()
-
-        update_progress()
-
-    tk.Button(frame, text="Sign Up", bg="#2563eb", fg="white",
-              font=("Segoe UI", 14, "bold"), border=0, command=begin).pack(pady=10)
-    tk.Button(frame, text="Back", bg="#334155", fg="white",
-              border=0, command=login).pack()
-
-# ---------------- MAIN MENU ----------------
-def main_menu():
-    clear()
-    tk.Label(root, text=f"Welcome, {state['current_user']}",
-             font=("Segoe UI", 26, "bold"),
-             fg=TXT, bg=BG).pack(pady=20)
-
-    for text, cmd in [
-        ("Games", games),
-        ("Game Editor", game_editor),
-        ("Store", store),
-        ("Update", update_check),
-        ("Settings", settings),
-        ("Power", power)
-    ]:
-        tk.Button(root, text=text, bg=BTN, fg=TXT,
-                  font=("Segoe UI", 14, "bold"),
-                  width=16, pady=8, border=0, command=cmd).pack(pady=4)
-
-# ---------------- GAMES ----------------
 def games():
     clear()
-    tk.Label(root, text="Games", font=("Segoe UI", 26, "bold"),
-             fg=TXT, bg=BG).pack(pady=20)
+    tk.Label(root, text="Games", font=("Segoe UI",26,"bold"), fg=TXT, bg=BG).pack(pady=20)
+    tk.Button(root,text="Astro Bot", bg=BTN, fg=TXT, font=("Segoe UI",14), border=0, command=lambda: None).pack(pady=5)
+    tk.Button(root,text="Back", bg="#334155", fg="white", border=0, command=main_menu).pack(pady=10)
 
-    user_games = state["accounts"][state["current_user"]]["games"]
-    for g in user_games:
-        tk.Button(root, text=g, bg=BTN, fg=TXT, font=("Segoe UI", 14), border=0,
-                  command=lambda g=g: messagebox.showinfo("Game Launch", f"Launching {g}")).pack(pady=5)
-
-    tk.Button(root, text="Astro Bot", bg=BTN, fg=TXT, font=("Segoe UI", 14), border=0,
-              command=astro_bot_game).pack(pady=5)
-
-    tk.Button(root, text="Back", bg="#334155", fg="white", border=0, command=main_menu).pack(pady=10)
-
-# ---------------- GAME EDITOR ----------------
-def game_editor():
+def main_menu():
     clear()
-    tk.Label(root, text="Game Editor", font=("Segoe UI", 26, "bold"),
-             fg=TXT, bg=BG).pack(pady=20)
-
-    entry = tk.Entry(root)
-    entry.pack()
-
-    def add_game():
-        name = entry.get()
-        if name:
-            state["accounts"][state["current_user"]]["games"].append(name)
-            save_state()
-            messagebox.showinfo("Saved", "Game added")
-
-    tk.Button(root, text="Create Game", bg="#2563eb", fg="white",
-              border=0, command=add_game).pack(pady=10)
-    tk.Button(root, text="Back", bg="#334155", fg="white",
-              border=0, command=main_menu).pack()
-
-# ---------------- STORE ----------------
-def store():
-    clear()
-    tk.Label(root, text="Relex Store",
-             font=("Segoe UI", 26, "bold"),
-             fg=TXT, bg=BG).pack(pady=20)
-
-    tk.Label(root, text="Coming Soon", fg="#94a3b8", bg=BG).pack()
-    tk.Button(root, text="Back", bg="#334155", fg="white",
-              border=0, command=main_menu).pack(pady=10)
-
-# ---------------- UPDATE ----------------
-def update_check():
-    clear()
-    tk.Label(root, text="Checking Updates",
-             font=("Segoe UI", 26, "bold"),
-             fg=TXT, bg=BG).pack(pady=10)
-
-    logs = tk.Text(root, height=10, bg="#020617", fg="#38bdf8")
-    logs.pack(fill="x", padx=20, pady=10)
-    logs.insert("end", "[Relex Network Monitor]\n")
-    logs.configure(state="disabled")
-
-    def log_text(text):
-        logs.configure(state="normal")
-        logs.insert("end", text + "\n")
-        logs.see("end")
-        logs.configure(state="disabled")
-
-    log_text("CONNECT → github.com")
-    log_text(f"SEND → current version={state['version']}")
-
-    try:
-        r = requests.get("https://raw.githubusercontent.com/dog629/stick/main/stick-file", timeout=10)
-        r.raise_for_status()
-        remote_version = r.text.strip()
-        log_text(f"SERVER → latest version={remote_version}")
-
-        if remote_version != state['version']:
-            log_text("UPDATE → New version available!")
-
-            def do_update():
-                try:
-                    log_text("Downloading latest version...")
-                    r_code = requests.get("https://raw.githubusercontent.com/dog629/stick/main/main.py", timeout=10)
-                    r_code.raise_for_status()
-                    with open("main.py", "w", encoding="utf-8") as f:
-                        f.write(r_code.text)
-                    log_text("Update downloaded and applied.")
-                    state['version'] = remote_version
-                    save_state()
-                    messagebox.showinfo("Update", "Update applied! Restarting Relex...")
-                    os.execl(sys.executable, sys.executable, *sys.argv)
-                except Exception as e:
-                    log_text(f"ERROR → {e}")
-
-            tk.Button(root, text="Update Now", bg="#2563eb", fg="white",
-                      font=("Segoe UI", 14, "bold"), border=0,
-                      command=do_update).pack(pady=10)
-        else:
-            log_text("UPDATE → You are on the latest version.")
-    except Exception as e:
-        log_text(f"ERROR → {e}")
-
-    tk.Button(root, text="Back", bg="#334155", fg="white",
-              border=0, command=main_menu).pack(pady=10)
-
-# ---------------- SETTINGS ----------------
-def settings():
-    clear()
-    tk.Label(root, text="Settings",
-             font=("Segoe UI", 26, "bold"),
-             fg=TXT, bg=BG).pack(pady=20)
-
-    def reset():
-        if messagebox.askyesno("Reset", "Reset all data?"):
-            if os.path.exists(STATE_FILE):
-                os.remove(STATE_FILE)
-            global state
-            state = {
-                "setup_complete": False,
-                "current_user": None,
-                "accounts": {
-                    "AlmondBadger403": {"password": "Bears123", "games": []},
-                    "callum": {"password": "dogdolla123", "games": []}
-                },
-                "version": "0.0.1"
-            }
-            save_state()
-            signup()
-
-    tk.Button(root, text="Reset Account", bg="#7f1d1d", fg="white",
-              border=0, command=reset).pack(pady=10)
-    tk.Button(root, text="Back", bg="#334155", fg="white",
-              border=0, command=main_menu).pack()
-
-# ---------------- POWER ----------------
-def power():
-    clear()
-    tk.Label(root, text="Power",
-             font=("Segoe UI", 26, "bold"),
-             fg=TXT, bg=BG).pack(pady=20)
-
-    tk.Button(root, text="Shutdown", bg="#7f1d1d", fg="white",
-              border=0, command=root.destroy).pack(pady=5)
-    tk.Button(root, text="Restart", bg=BTN, fg="white",
-              border=0, command=lambda: os.execl(sys.executable, sys.executable, *sys.argv)).pack(pady=5)
-    tk.Button(root, text="Back", bg="#334155", fg="white",
-              border=0, command=main_menu).pack(pady=10)
-
-# ---------------- ASTRO BOT GAME ----------------
-def astro_bot_game():
-    clear()
-    root.title("Relex - Astro Bot Mini Game")
-    
-    canvas_width = root.winfo_screenwidth()
-    canvas_height = root.winfo_screenheight()-50  # adjust for taskbar
-    canvas = tk.Canvas(root, width=canvas_width, height=canvas_height, bg=BG)
-    canvas.pack()
-
-    player = canvas.create_rectangle(50, canvas_height-100, 80, canvas_height-70, fill="#2563eb")
-    obstacles = []
-    score = tk.IntVar(value=0)
-    canvas_score = canvas.create_text(canvas_width-100, 30, text="Score: 0", fill="white", font=("Segoe UI", 18, "bold"))
-
-    player_speed = 15
-    jump_speed = 20
-    gravity = 1.5
-    is_jumping = False
-    jump_velocity = 0
-
-    def move_left(event):
-        canvas.move(player, -player_speed, 0)
-    def move_right(event):
-        canvas.move(player, player_speed, 0)
-    def jump(event):
-        nonlocal is_jumping, jump_velocity
-        if not is_jumping:
-            is_jumping = True
-            jump_velocity = -jump_speed
-
-    root.bind("<Left>", move_left)
-    root.bind("<Right>", move_right)
-    root.bind("<space>", jump)
-
-    def game_loop():
-        nonlocal is_jumping, jump_velocity
-        if is_jumping:
-            canvas.move(player, 0, jump_velocity)
-            jump_velocity += gravity
-            p_coords = canvas.coords(player)
-            if p_coords[3] >= canvas_height-70:
-                canvas.coords(player, p_coords[0], canvas_height-100, p_coords[2], canvas_height-70)
-                is_jumping = False
-
-        for obs in obstacles:
-            canvas.move(obs, -6, 0)
-
-        for obs in obstacles[:]:
-            if canvas.coords(obs)[2] < 0:
-                canvas.delete(obs)
-                obstacles.remove(obs)
-                score.set(score.get() + 1)
-                canvas.itemconfig(canvas_score, text=f"Score: {score.get()}")
-
-        p_coords = canvas.coords(player)
-        for obs in obstacles:
-            o_coords = canvas.coords(obs)
-            if p_coords[2] > o_coords[0] and p_coords[0] < o_coords[2] and p_coords[3] > o_coords[1]:
-                messagebox.showinfo("Game Over", f"Game Over! Score: {score.get()}")
-                main_menu()
-                return
-
-        if random.randint(1, 40) == 1:
-            obs_height = random.randint(30, 80)
-            obs = canvas.create_rectangle(canvas_width, canvas_height-70-obs_height, canvas_width+40, canvas_height-70, fill="#ef4444")
-            obstacles.append(obs)
-
-        root.after(20, game_loop)
-
-    game_loop()
+    tk.Label(root, text=f"Welcome, {state['current_user']}", font=("Segoe UI",26,"bold"), fg=TXT, bg=BG).pack(pady=20)
+    for text, cmd in [
+        ("Games", games),
+        ("Game Editor", lambda: None),
+        ("Store", lambda: None),
+        ("RelexTube", relextube),
+        ("Update", lambda: None),
+        ("Settings", lambda: None),
+        ("Power", lambda: root.destroy())
+    ]:
+        tk.Button(root,text=text, bg=BTN, fg=TXT, font=("Segoe UI",14,"bold"), width=16, pady=8, border=0, command=cmd).pack(pady=4)
 
 # ---------------- START ----------------
 if not state["setup_complete"]:
@@ -420,4 +282,3 @@ else:
 
 root.mainloop()
 
- 
