@@ -1,51 +1,24 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import json, os, random, time, sys, subprocess, shutil, webbrowser, platform
+import json, os, random, time, sys, subprocess, shutil, platform, webbrowser
 
-# ---------------- ENSURE OPENCV IS INSTALLED ----------------
-try:
-    import cv2
-except ImportError:
-    print("OpenCV not found. Installing now...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "opencv-python"])
-    import cv2
-
-# ---------------- ENSURE PILLOW IS INSTALLED ----------------
-try:
-    from PIL import Image, ImageTk
-except ImportError:
-    print("Pillow not found. Installing now...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "Pillow"])
-    from PIL import Image, ImageTk
-
-# ---------------- GLOBALS ----------------
 STATE_FILE = "state.json"
 BG = "#0f172a"
 BTN = "#1e293b"
 TXT = "white"
 RELEXTUBE_DIR = "RelexTube"
 
-# ---------------- ENSURE RelexTube FOLDER ----------------
+# ------------------- ENSURE RelexTube FOLDER -------------------
 if not os.path.exists(RELEXTUBE_DIR):
     os.makedirs(RELEXTUBE_DIR)
 
-# ---------------- LOAD STATE ----------------
+# ------------------- LOAD STATE -------------------
 if os.path.exists(STATE_FILE):
     with open(STATE_FILE, "r") as f:
         state = json.load(f)
 else:
     state = {}
 
-# ---------------- SAVE STATE FUNCTION ----------------
-def save_state():
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
-
-# ---------------- CLEAR ALL RelexTube VIDEOS ----------------
-state["relextube"] = []
-save_state()
-
-# ---------------- DEFAULTS ----------------
 state.setdefault("accounts", {
     "AlmondBadger403": {"password": "Bears123", "games": []},
     "callum": {"password": "dogdolla123", "games": []}
@@ -53,167 +26,101 @@ state.setdefault("accounts", {
 state.setdefault("setup_complete", False)
 state.setdefault("current_user", None)
 state.setdefault("version", "0.0.1")
-state.setdefault("relextube", [])  # Global RelexTube metadata
+state.setdefault("relextube", [])
+
+def save_state():
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+
 save_state()
 
-# ---------------- ROOT ----------------
+# ------------------- ROOT -------------------
 root = tk.Tk()
 root.title("Relex Console")
 root.attributes("-fullscreen", True)
 root.configure(bg=BG)
 root.resizable(True, True)
 
-# ---------------- HELPERS ----------------
+# ------------------- HELPERS -------------------
 def clear():
     for w in root.winfo_children():
         w.destroy()
 
-# ---------------- FULLSCREEN VIDEO PLAYER ----------------
-def play_video_fullscreen(video_path):
+# ------------------- USB UPLOAD/DOWNLOAD -------------------
+suspicious_counter = {}  # session memory for suspicious files
+blocked_extensions = [".py", ".pyw", ".js", ".sh", ".bat", ".cmd", ".vbs", ".msi", ".scr"]
+
+def detect_usb():
+    drives = []
+    if platform.system() == "Windows":
+        import string
+        from ctypes import windll
+        bitmask = windll.kernel32.GetLogicalDrives()
+        for letter in string.ascii_uppercase:
+            if bitmask & 1 and os.path.exists(f"{letter}:/"):
+                drives.append(f"{letter}:/")
+            bitmask >>= 1
+    else:
+        for base in ["/media", "/Volumes"]:
+            if os.path.exists(base):
+                drives.extend([os.path.join(base,d) for d in os.listdir(base)])
+    return drives
+
+def usb_transfer_menu():
     clear()
-    root.attributes("-fullscreen", True)
-    canvas = tk.Canvas(root, width=root.winfo_screenwidth(), height=root.winfo_screenheight(), bg="black")
-    canvas.pack(fill="both", expand=True)
-    cap = cv2.VideoCapture(video_path)
+    tk.Label(root, text="USB Transfer", font=("Segoe UI",26,"bold"), fg=TXT, bg=BG).pack(pady=20)
 
-    def on_esc(event):
-        cap.release()
-        main_menu()  # Return to main menu
+    drives = detect_usb()
+    if not drives:
+        tk.Label(root, text="No USB detected.", fg=TXT, bg=BG).pack(pady=10)
+    else:
+        for d in drives:
+            tk.Label(root, text=f"USB detected: {d}", fg="#94a3b8", bg=BG).pack(pady=5)
 
-    root.bind("<Escape>", on_esc)
+        def upload_files():
+            files = filedialog.askopenfilenames(title="Select Files to Upload")
+            if not files:
+                return
+            for f in files:
+                _, ext = os.path.splitext(f)
+                if ext.lower() in blocked_extensions:
+                    messagebox.showwarning("Blocked", f"File {os.path.basename(f)} is blocked!")
+                    continue
+                try:
+                    shutil.copy(f, d)
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to upload {f}: {e}")
+            messagebox.showinfo("Upload", "Files uploaded successfully.")
 
-    def show_frame():
-        ret, frame = cap.read()
-        if ret:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img = Image.fromarray(frame)
-            img = img.resize((root.winfo_screenwidth(), root.winfo_screenheight()))
-            imgtk = ImageTk.PhotoImage(image=img)
-            canvas.create_image(0, 0, anchor="nw", image=imgtk)
-            canvas.imgtk = imgtk
-            root.after(20, show_frame)
-        else:
-            cap.release()
-            main_menu()
+        def download_files():
+            files = filedialog.askopenfilenames(title="Select Files to Download from USB", initialdir=d)
+            if not files:
+                return
+            for f in files:
+                _, ext = os.path.splitext(f)
+                if ext.lower() in blocked_extensions:
+                    messagebox.showwarning("Blocked", f"File {os.path.basename(f)} is blocked!")
+                    continue
+                try:
+                    shutil.copy(f, os.getcwd())
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to download {f}: {e}")
+            messagebox.showinfo("Download", "Files downloaded successfully.")
 
-    show_frame()
+        tk.Button(root, text="Upload Files to USB", bg="#10b981", fg="white", border=0, command=upload_files).pack(pady=5)
+        tk.Button(root, text="Download Files from USB", bg="#2563eb", fg="white", border=0, command=download_files).pack(pady=5)
 
-# ---------------- YOUTUBE ----------------
-def youtube():
-    webbrowser.open("https://www.youtube.com")
-
-# ---------------- RELEXTUBE ----------------
-def relextube():
-    clear()
-    tk.Label(root, text="RelexTube (if playing vid, press esc to stop watching)",
-             font=("Segoe UI", 26, "bold"),
-             fg=TXT, bg=BG).pack(pady=10)
-
-    frame = tk.Frame(root, bg=BG)
-    frame.pack(fill="both", expand=True)
-
-    canvas_frame = tk.Canvas(frame, bg=BG, highlightthickness=0)
-    scroll = tk.Scrollbar(frame, command=canvas_frame.yview)
-    inner = tk.Frame(canvas_frame, bg=BG)
-    inner.bind("<Configure>", lambda e: canvas_frame.configure(scrollregion=canvas_frame.bbox("all")))
-    canvas_frame.create_window((0, 0), window=inner, anchor="nw")
-    canvas_frame.configure(yscrollcommand=scroll.set)
-    canvas_frame.pack(side="left", fill="both", expand=True)
-    scroll.pack(side="right", fill="y")
-
-    if not state["relextube"]:
-        tk.Label(inner, text="No videos yet.", fg="#94a3b8", bg=BG).pack(pady=20)
-
-    for v in state["relextube"]:
-        box = tk.Frame(inner, bg=BTN, pady=8)
-        box.pack(fill="x", padx=20, pady=6)
-
-        # Thumbnail
-        thumb_path = os.path.join(RELEXTUBE_DIR, v.get("thumbnail",""))
-        if os.path.exists(thumb_path):
-            try:
-                thumb_img = tk.PhotoImage(file=thumb_path)
-                thumb_label = tk.Label(box, image=thumb_img, bg=BTN)
-                thumb_label.image = thumb_img
-                thumb_label.pack(side="left", padx=10)
-            except:
-                pass
-
-        # Info
-        info_frame = tk.Frame(box, bg=BTN)
-        info_frame.pack(side="left", fill="x", expand=True)
-        tk.Label(info_frame, text=v["title"], fg="white", bg=BTN, font=("Segoe UI", 14, "bold")).pack(anchor="w")
-        tk.Label(info_frame, text=f"Posted by {v['user']}", fg="#94a3b8", bg=BTN).pack(anchor="w")
-
-        # Watch button (fullscreen)
-        video_path = os.path.join(RELEXTUBE_DIR, v["video"])
-        tk.Button(box, text="Watch", bg="#2563eb", fg="white", border=0,
-                  command=lambda vp=video_path: play_video_fullscreen(vp)).pack(side="right", padx=10)
-
-    tk.Button(root, text="Post Video", bg="#10b981", fg="white",
-              font=("Segoe UI", 14, "bold"), border=0, command=post_video).pack(pady=10)
     tk.Button(root, text="Back", bg="#334155", fg="white", border=0, command=main_menu).pack(pady=10)
 
-def post_video():
-    clear()
-    tk.Label(root, text="Post to RelexTube", font=("Segoe UI", 26, "bold"), fg=TXT, bg=BG).pack(pady=20)
-
-    tk.Label(root, text="Video Title", fg=TXT, bg=BG).pack()
-    title_entry = tk.Entry(root, width=40)
-    title_entry.pack(pady=5)
-
-    video_path_var = tk.StringVar()
-    thumb_path_var = tk.StringVar()
-
-    def choose_video():
-        path = filedialog.askopenfilename(filetypes=[("MP4 Videos","*.mp4")])
-        if path: video_path_var.set(path)
-
-    def choose_thumbnail():
-        path = filedialog.askopenfilename(filetypes=[("Images","*.png *.jpg *.jpeg")])
-        if path: thumb_path_var.set(path)
-
-    tk.Button(root, text="Select Video", bg=BTN, fg="white", command=choose_video).pack(pady=5)
-    tk.Label(root, textvariable=video_path_var, fg=TXT, bg=BG).pack()
-    tk.Button(root, text="Select Thumbnail", bg=BTN, fg="white", command=choose_thumbnail).pack(pady=5)
-    tk.Label(root, textvariable=thumb_path_var, fg=TXT, bg=BG).pack()
-
-    def submit():
-        t = title_entry.get().strip()
-        v_path = video_path_var.get().strip()
-        th_path = thumb_path_var.get().strip()
-        if not t or not v_path:
-            messagebox.showerror("Error","Title and Video required")
-            return
-
-        vid_filename = f"{int(time.time())}_{os.path.basename(v_path)}"
-        shutil.copy(v_path, os.path.join(RELEXTUBE_DIR, vid_filename))
-        thumb_filename = ""
-        if th_path:
-            thumb_filename = f"{int(time.time())}_{os.path.basename(th_path)}"
-            shutil.copy(th_path, os.path.join(RELEXTUBE_DIR, thumb_filename))
-
-        state["relextube"].insert(0,{
-            "title": t,
-            "video": vid_filename,
-            "thumbnail": thumb_filename,
-            "user": state["current_user"]
-        })
-        save_state()
-        relextube()
-
-    tk.Button(root, text="Post", bg="#2563eb", fg="white", font=("Segoe UI", 14, "bold"), border=0, command=submit).pack(pady=10)
-    tk.Button(root, text="Back", bg="#334155", fg="white", border=0, command=relextube).pack()
-
-# ---------------- LOGIN / SIGNUP / MAIN MENU ----------------
+# ------------------- LOGIN -------------------
 def login():
     clear()
-    tk.Label(root, text="Relex Login", font=("Segoe UI", 26, "bold"), fg=TXT, bg=BG).pack(pady=20)
+    tk.Label(root, text="Relex Login", font=("Segoe UI",26,"bold"), fg=TXT, bg=BG).pack(pady=20)
     tk.Label(root, text="Username", fg=TXT, bg=BG).pack()
     user = tk.Entry(root)
     user.pack()
     tk.Label(root, text="Password", fg=TXT, bg=BG).pack()
-    pwd = tk.Entry(root, show="*", font=("Segoe UI", 14))
+    pwd = tk.Entry(root, show="*", font=("Segoe UI",14))
     pwd.pack()
 
     def do_login():
@@ -223,25 +130,24 @@ def login():
             save_state()
             main_menu()
         else:
-            messagebox.showerror("Login Failed", "Invalid credentials")
+            messagebox.showerror("Login Failed","Invalid credentials")
 
-    tk.Button(root, text="Login", bg="#2563eb", fg="white", font=("Segoe UI", 14, "bold"), border=0, command=do_login).pack(pady=10)
-    tk.Button(root, text="Sign Up", bg="#10b981", fg="white", font=("Segoe UI", 14, "bold"), border=0, command=lambda: signup()).pack()
+    tk.Button(root, text="Login", bg="#2563eb", fg="white", font=("Segoe UI",14,"bold"), border=0, command=do_login).pack(pady=10)
+    tk.Button(root, text="Sign Up", bg="#10b981", fg="white", font=("Segoe UI",14,"bold"), border=0, command=lambda: signup()).pack()
 
+# ------------------- SIGN UP -------------------
 def signup():
     clear()
-    frame = tk.Frame(root, bg=BG)
-    frame.pack(expand=True, fill="both")
-    tk.Label(frame, text="Create Account", font=("Segoe UI", 26, "bold"), fg=TXT, bg=BG).pack(pady=10)
-    tk.Label(frame, text="Username", fg=TXT, bg=BG).pack()
-    user = tk.Entry(frame, font=("Segoe UI", 14))
+    tk.Label(root, text="Create Account", font=("Segoe UI",26,"bold"), fg=TXT, bg=BG).pack(pady=20)
+    tk.Label(root, text="Username", fg=TXT, bg=BG).pack()
+    user = tk.Entry(root, font=("Segoe UI",14))
     user.pack(pady=5)
-    tk.Label(frame, text="Password", fg=TXT, bg=BG).pack()
-    pwd = tk.Entry(frame, show="*", font=("Segoe UI", 14))
+    tk.Label(root, text="Password", fg=TXT, bg=BG).pack()
+    pwd = tk.Entry(root, show="*", font=("Segoe UI",14))
     pwd.pack(pady=5)
 
-    def begin():
-        u,p=user.get().strip(),pwd.get().strip()
+    def do_signup():
+        u, p = user.get().strip(), pwd.get().strip()
         if not u or not p or u in state["accounts"]:
             messagebox.showerror("Error","Invalid details")
             return
@@ -251,30 +157,42 @@ def signup():
         save_state()
         main_menu()
 
-    tk.Button(frame,text="Sign Up", bg="#2563eb", fg="white", font=("Segoe UI",14,"bold"), border=0, command=begin).pack(pady=10)
-    tk.Button(frame,text="Back", bg="#334155", fg="white", border=0, command=login).pack()
+    tk.Button(root, text="Sign Up", bg="#2563eb", fg="white", font=("Segoe UI",14,"bold"), border=0, command=do_signup).pack(pady=10)
+    tk.Button(root, text="Back", bg="#334155", fg="white", border=0, command=login).pack()
 
+# ------------------- GAMES -------------------
 def games():
     clear()
     tk.Label(root, text="Games", font=("Segoe UI",26,"bold"), fg=TXT, bg=BG).pack(pady=20)
-    tk.Button(root,text="Astro Bot", bg=BTN, fg=TXT, font=("Segoe UI",14), border=0, command=lambda: None).pack(pady=5)
+    tk.Button(root,text="Astro Bot", bg=BTN, fg=TXT, font=("Segoe UI",14), border=0, command=astro_bot_game).pack(pady=5)
     tk.Button(root,text="Back", bg="#334155", fg="white", border=0, command=main_menu).pack(pady=10)
 
+# ------------------- ASTRO BOT -------------------
+def astro_bot_game():
+    clear()
+    root.title("Relex - Astro Bot Mini Game")
+    canvas = tk.Canvas(root, width=root.winfo_screenwidth(), height=root.winfo_screenheight()-50, bg=BG)
+    canvas.pack()
+    player = canvas.create_rectangle(50, canvas.winfo_height()-100, 80, canvas.winfo_height()-70, fill="#2563eb")
+    tk.Button(root,text="Exit", bg="#334155", fg="white", border=0, command=main_menu).pack(pady=5)
+
+# ------------------- MAIN MENU -------------------
 def main_menu():
     clear()
     tk.Label(root, text=f"Welcome, {state['current_user']}", font=("Segoe UI",26,"bold"), fg=TXT, bg=BG).pack(pady=20)
     for text, cmd in [
         ("Games", games),
-        ("Game Editor", lambda: None),
-        ("Store", lambda: None),
-        ("RelexTube", relextube),
-        ("Update", lambda: None),
-        ("Settings", lambda: None),
-        ("Power", lambda: root.destroy())
+        ("Game Editor", lambda: messagebox.showinfo("Game Editor","Coming Soon")),
+        ("Store", lambda: messagebox.showinfo("Store","Coming Soon")),
+        ("RelexTube", lambda: messagebox.showinfo("RelexTube","Coming Soon")),
+        ("Update", lambda: messagebox.showinfo("Update","Coming Soon")),
+        ("Settings", lambda: messagebox.showinfo("Settings","Coming Soon")),
+        ("Power", lambda: root.destroy()),
+        ("USB Transfer", usb_transfer_menu)
     ]:
         tk.Button(root,text=text, bg=BTN, fg=TXT, font=("Segoe UI",14,"bold"), width=16, pady=8, border=0, command=cmd).pack(pady=4)
 
-# ---------------- START ----------------
+# ------------------- START -------------------
 if not state["setup_complete"]:
     signup()
 else:
